@@ -1,0 +1,29 @@
+---
+description: Konwencje kodu Pythona w backendzie LaserXe (FastAPI, SQLite, Pydantic).
+globs: backend/**/*.py
+alwaysApply: false
+---
+# Python backend (LaserXe)
+
+Backend w katalogu `backend/` to **Python 3.11+** z **FastAPI** (lub Flask), **SQLite** i **Pydantic**.
+
+## Struktura katalogów
+
+- `backend/main.py` – punkt wejścia, tworzenie aplikacji FastAPI, montowanie routerów.
+- `backend/app/api/` – routery (endpointy REST). Dziel na moduły według domeny (np. auth, plans, iterations).
+- `backend/app/db/` – połączenie z SQLite, modele/schema, zapytania. Nie trzymaj logiki biznesowej w warstwie db.
+- `backend/app/` – logika biznesowa (generacja siatki, sekwencja emisji, walidacja) – serwisy, które wywołują API i db.
+- `backend/migrations/` – pliki SQL migracji (konwencja w regule db-sqlite-migrations).
+
+## Konwencje kodu
+
+- **Walidacja wejścia/wyjścia:** używaj modeli **Pydantic** dla request/response. Nazwy zgodne z `src/types.ts` (kontrakt API frontend–backend).
+- **Błędy:** wczesne returny i guard clauses; rzucaj `HTTPException` z odpowiednimi kodami (400, 401, 404, 422, 500).
+- **Logika algorytmów:** NumPy, Pillow zgodnie z tech-stack; obliczenia w mm/mm²; deterministyczność dla tych samych wejść.
+- **Baza:** SQLite przez `sqlite3` lub async driver; hasła użytkowników tylko w formie hashowanej (np. bcrypt przed produkcją).
+- **Zależności:** FastAPI `Depends()` dla sesji DB, auth, konfiguracji; unikaj globalnego stanu.
+
+## Uruchomienie
+
+- Dev: `uvicorn main:app --reload --port 8000` (z katalogu `backend/`).
+- Zmienne środowiskowe (np. ścieżka do pliku SQLite) – opcjonalnie z `.env` (python-dotenv) lub zmienne systemowe.

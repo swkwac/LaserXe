@@ -1,0 +1,1 @@
+# Endpointy REST (routery FastAPI).

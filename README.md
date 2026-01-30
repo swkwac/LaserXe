@@ -89,6 +89,37 @@ The `.windsurfrules` file contains AI configuration for Windsurf.
 
 Please follow the AI guidelines and coding practices defined in the AI configuration files when contributing to this project.
 
+## Backend API (FastAPI)
+
+1. Install Python dependencies:
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+2. Configure auth in `.env` (example in `.env.example`):
+   - `AUTH_SECRET_KEY` (required for cookie auth)
+   - `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAMESITE`
+   - `AUTH_COOKIE_MAX_AGE_SECONDS`
+
+3. Run migrations and seed:
+
+```bash
+python backend/scripts/run_migrations.py
+```
+
+4. Start backend:
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+5. Run backend tests:
+
+```bash
+pytest backend/tests
+```
+
 ## License
 
 MIT

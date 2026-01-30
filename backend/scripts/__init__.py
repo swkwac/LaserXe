@@ -1,0 +1,1 @@
+# Skrypty: migracje, seed.

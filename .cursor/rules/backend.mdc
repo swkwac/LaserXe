@@ -1,12 +1,12 @@
 ---
 description: 
-globs: src/db/*.ts,src/middleware/*.ts,src/lib/*.ts
+globs: backend/**/*.py,src/middleware/*.ts,src/lib/*.ts,src/pages/api/**/*.ts
 alwaysApply: false
 ---
 ### Backend and Database
 
-- Use Supabase for backend services, including authentication and database interactions.
-- Follow Supabase guidelines for security and performance.
-- Use Zod schemas to validate data exchanged with the backend.
-- Use supabase from context.locals in Astro routes instead of importing supabaseClient directly
-- Use SupabaseClient type from `src/db/supabase.client.ts`, not from `@supabase/supabase-js`
+- **Backend:** Python (FastAPI lub Flask) w katalogu `./backend`. API REST obsługuje logikę biznesową (generacja siatki, sekwencja emisji, walidacja), uwierzytelnienie i dostęp do bazy.
+- **Baza danych:** SQLite – użytkownicy, iteracje planów (iteration_id, parent_id, parametry, metryki), logi. Przy wzroście obciążenia możliwa migracja do PostgreSQL.
+- Walidacja danych: używaj schematów (np. Pydantic w Pythonie, Zod po stronie frontendu) do walidacji payloadów API.
+- Frontend (Astro) komunikuje się z backendem przez HTTP (fetch/axios) do endpointów Pythona. Opcjonalnie: Astro API routes w `./src/pages/api` jako proxy do backendu Pythona.
+- Typy współdzielone (Entities, DTOs) trzymaj w `./src/types.ts` tak, aby frontend i kontrakt API były spójne.

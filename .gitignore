@@ -22,3 +22,14 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# Python / backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.db
+backend/.venv/
+.venv/
+*.pyc
+*.pyo
+# lokalna baza SQLite (domyślnie w katalogu projektu)
+laserme.db

@@ -1,0 +1,66 @@
+# Stos technologiczny – laserme 2.0a (MVP)
+
+**Wersja:** 1.0  
+**Data:** 2026-01-30
+
+---
+
+## 1. Języki programowania i frameworki
+
+### Frontend
+- **Astro 5** – szkielet aplikacji, routing, strony.
+- **React 19** – komponenty interaktywne (maski, canvas, animacja, formularze).
+- **TypeScript 5** – typowanie statyczne, wsparcie IDE.
+- **Tailwind 4** – stylowanie.
+- **Shadcn/ui** – biblioteka komponentów React pod UI.
+
+### Backend
+- **Python** (3.11+) – logika biznesowa, algorytmy (generacja siatki, sekwencja emisji, walidacja), API.
+- **FastAPI** lub **Flask** – API REST (np. POST obraz + parametry → punkty, sekwencja, metryki).
+- Zalecane biblioteki: NumPy, Pillow (obraz/eksport), geometria (punkty, maski, overlap).
+
+---
+
+## 2. Baza danych
+
+- **SQLite** – przechowywanie:
+  - użytkowników (dla logowania),
+  - iteracji planów (iteration_id, parent_id, parametry, metryki, timestamp),
+  - logów (iteracje, parametry, fallbacki).
+- Przy wzroście obciążenia – możliwa migracja do PostgreSQL.
+
+---
+
+## 3. Uwierzytelnienie
+
+- Dostęp do aplikacji chroniony **ekranem logowania**.
+- **Domyślne dane logowania (MVP/demo):** login **user**, hasło **123**.
+- **Przed wdrożeniem produkcyjnym:** zmiana hasła, hash haseł w bazie i/lub silniejsze uwierzytelnienie (np. OAuth).
+- Sesje: secure, httpOnly cookies lub tokeny; ochrona przed CSRF.
+
+---
+
+## 4. CI/CD i hosting
+
+- **GitHub Actions** – pipeline CI/CD (build, testy, deploy).
+- **DigitalOcean** – hostowanie aplikacji.
+- **Docker** – obraz kontenera, spójne środowisko dev/prod.
+
+---
+
+## 5. Poza stosem MVP
+
+- **AI (OpenRouter lub inne)** – nie wchodzi w skład MVP. Ewentualne wprowadzenie w fazie „automatyczna segmentacja” (post-MVP).
+
+---
+
+## 6. Podsumowanie
+
+| Warstwa      | Technologie |
+|-------------|-------------|
+| Frontend    | Astro 5, React 19, TypeScript 5, Tailwind 4, Shadcn/ui |
+| Backend     | Python (FastAPI/Flask) |
+| Baza danych | SQLite |
+| Auth        | Ekran logowania; domyślnie user / 123 (MVP) |
+| CI/CD       | GitHub Actions |
+| Hosting     | DigitalOcean (Docker) |

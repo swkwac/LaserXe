@@ -1,0 +1,1 @@
+# Połączenie SQLite, modele, zapytania.

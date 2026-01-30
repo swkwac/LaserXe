@@ -22,10 +22,10 @@ When introducing changes to the project, always follow the directory structure b
 - `./src` - source code
 - `./src/layouts` - Astro layouts
 - `./src/pages` - Astro pages
-- `./src/pages/api` - API endpoints
+- `./src/pages/api` - Astro API routes (proxy to Python backend if needed)
 - `./src/middleware/index.ts` - Astro middleware
-- `./src/db` - Supabase clients and types
-- `./src/types.ts` - Shared types for backend and frontend (Entities, DTOs)
+- `./backend` - Python backend (FastAPI/Flask), API REST, SQLite, logika biznesowa
+- `./src/types.ts` - Shared types for frontend and API contract (Entities, DTOs)
 - `./src/components` - Client-side components written in Astro (static) and React (dynamic)
 - `./src/components/ui` - Client-side components from Shadcn/ui
 - `./src/lib` - Services and helpers 

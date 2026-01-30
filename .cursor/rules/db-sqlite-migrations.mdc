@@ -1,0 +1,36 @@
+---
+description: Tworzenie i zarządzanie migracjami SQLite dla backendu LaserXe.
+globs: backend/migrations/**/*.sql,backend/app/db/**/*.py
+alwaysApply: false
+---
+# Baza danych: migracje SQLite
+
+Projekt używa **SQLite** do przechowywania: użytkowników (logowanie), iteracji planów (iteration_id, parent_id, parametry, metryki), logów (iteracje, parametry, fallbacki).
+
+## Tworzenie pliku migracji
+
+Twórz pliki migracji w katalogu `backend/migrations/`.
+
+**Konwencja nazwy:** `YYYYMMDDHHmmss_krotki_opis.sql` (UTC):
+
+- `YYYY` – rok (4 cyfry)
+- `MM` – miesiąc (01–12)
+- `DD` – dzień (01–31)
+- `HH` – godzina 24h (00–23)
+- `mm` – minuty (00–59)
+- `ss` – sekundy (00–59)
+- Opis w snake_case, np. `create_users`, `add_iterations_table`
+
+Przykład: `20260130120000_create_users.sql`
+
+## Zasady SQL (SQLite)
+
+- Nagłówek komentarza z celem migracji i listą zmienianych tabel/kolumn.
+- Komentarze przy nietrywialnych krokach.
+- Pisanie SQL w lowercase (oprócz nazw jeśli konwencja projektu inaczej wymaga).
+- Przy operacjach destrukcyjnych (DROP, TRUNCATE, zmiana kolumn) – wyraźne komentarze i ewentualnie backup.
+- Używaj `IF NOT EXISTS` / `IF EXISTS` tam, gdzie SQLite to wspiera, aby migracje były idempotentne gdzie to możliwe.
+
+## Przyszła migracja na PostgreSQL
+
+Przy przejściu na PostgreSQL zachowaj konwencję nazw i opisów; SQL dostosuj do składni Postgres (np. SERIAL, RLS).
