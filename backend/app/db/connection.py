@@ -13,8 +13,9 @@ def get_db_path() -> str:
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """FastAPI dependency that yields a SQLite connection."""
-    conn = sqlite3.connect(get_db_path())
+    """FastAPI dependency that yields a SQLite connection.
+    check_same_thread=False: FastAPI runs Depends in one thread and the endpoint in another (threadpool)."""
+    conn = sqlite3.connect(get_db_path(), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
