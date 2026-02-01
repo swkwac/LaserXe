@@ -41,7 +41,9 @@ def client():
     os.environ["AUTH_COOKIE_SAMESITE"] = "lax"
     os.environ["AUTH_COOKIE_MAX_AGE_SECONDS"] = "3600"
 
-    conn = sqlite3.connect(":memory:")
+    # check_same_thread=False so the same connection can be used from the test
+    # thread (setup) and from the request thread (TestClient runs requests in another thread).
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     _create_schema(conn)
     _seed_user(conn)
@@ -88,8 +90,15 @@ def test_logout_clears_session(client: TestClient) -> None:
     login = client.post("/api/auth/login", json={"login": "user", "password": "123"})
     assert login.status_code == 200
     logout = client.post("/api/auth/logout")
-    assert logout.status_code == 200
+    assert logout.status_code == 204
+    assert logout.content == b""  # 204 No Content has no body
     response = client.get("/api/auth/me")
+    assert response.status_code == 401
+
+
+def test_logout_requires_auth(client: TestClient) -> None:
+    """Logout without valid session returns 401 (only /api/auth/login is public)."""
+    response = client.post("/api/auth/logout")
     assert response.status_code == 401
 
 

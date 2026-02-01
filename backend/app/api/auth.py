@@ -84,15 +84,16 @@ def login(
     return {"user": auth_user}
 
 
-@router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(response: Response) -> dict[str, str]:
-    """Clear the auth session cookie."""
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response) -> Response:
+    """Clear the auth session cookie. Requires valid session (no body on success)."""
     settings = load_session_settings()
     response.delete_cookie(
         key=settings.cookie_name,
         path="/",
     )
-    return {"status": "ok"}
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/me", status_code=status.HTTP_200_OK)

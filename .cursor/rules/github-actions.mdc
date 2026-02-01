@@ -1,0 +1,17 @@
+---
+description: Guidelines for creating and maintaining GitHub Actions workflows
+globs: .github/workflows/**/*.yaml
+alwaysApply: false
+---
+
+## GitHub Action Rules
+
+- Check if `package.json` exists in project root and summarize key scripts
+- Check if `.nvmrc` exists in project root
+- Check if `.env.example` exists in project root to identify key `env:` variables
+- Always use `git branch -a | cat` to verify whether we use `main` or `master` branch
+- Always use `env:` variables and secrets attached to jobs instead of global workflows
+- Always use `npm ci` for Node-based dependency setup
+- Extract common steps into composite actions in separate files when they grow
+- When adding public actions, verify latest major version (e.g. `actions/checkout@v4`, `actions/setup-node@v4`)
+- If linter complains about action parameters, fetch `action.yml` from the action repo to confirm schema

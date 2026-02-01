@@ -1,8 +1,5 @@
 ---
-import Welcome from "../components/Welcome.astro";
-import Layout from "../layouts/Layout.astro";
+// Strona główna przekierowuje na logowanie. Dodatkowo middleware
+// przekierowuje GET / na /login, więc ta strona jest fallbackiem.
+return Astro.redirect("/login");
 ---
-
-<Layout>
-  <Welcome />
-</Layout>

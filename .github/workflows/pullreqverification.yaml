@@ -1,0 +1,113 @@
+# Pull request verification: lint, unit tests, build, E2E (frontend + backend)
+# Branch: master (verified with git branch -a)
+# Uses npm ci, .nvmrc, env per job (no global secrets).
+# E2E: backend on :8000, Astro preview on :4321, default user user/123 (seed).
+
+name: PR verification
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  frontend:
+    name: Frontend (lint, test, build)
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION_FILE: .nvmrc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -v
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    env:
+      PUBLIC_API_URL: http://localhost:8000
+      AUTH_SECRET_KEY: ci-e2e-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run migrations and seed
+        run: python backend/scripts/run_migrations.py
+        env:
+          DATABASE_URL: sqlite:///./backend/laserme.db
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          PUBLIC_API_URL: http://localhost:8000
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Start servers and run E2E
+        run: |
+          (cd backend && uvicorn main:app --host 127.0.0.1 --port 8000) &
+          npm run preview &
+          until curl -sf http://127.0.0.1:8000/docs > /dev/null; do sleep 1; done
+          until curl -sf http://127.0.0.1:4321 > /dev/null; do sleep 1; done
+          npm run e2e
+        env:
+          AUTH_SECRET_KEY: ci-e2e-secret
+          DATABASE_URL: sqlite:///./laserme.db
+          PUBLIC_API_URL: http://localhost:8000

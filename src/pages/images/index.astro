@@ -1,0 +1,15 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import ImagesList from "../../components/images/ImagesList";
+import LogoutButton from "../../components/auth/LogoutButton";
+---
+
+<Layout title="Obrazy – LaserXe">
+  <main class="min-h-full px-4 py-6" role="main">
+    <header class="mb-6 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
+      <h1 class="text-xl font-semibold tracking-tight">Obrazy</h1>
+      <LogoutButton client:load />
+    </header>
+    <ImagesList client:load uploadPath="/images/new" />
+  </main>
+</Layout>

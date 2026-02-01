@@ -120,6 +120,24 @@ uvicorn backend.main:app --reload --port 8000
 pytest backend/tests
 ```
 
+## Grid algorithms (LaserXe)
+
+- **Prosty** – XY grid, 800 µm spacing (configurable 0.3–2 mm). Points only inside masks.
+- **Zaawansowany (beta)** – coverage target, diameters every 5°, automatic spacing. See `.ai/instrukcja-uzytkowania.md` (Krok 6) for details.
+
+## Export formats (LaserXe)
+
+- **Spots CSV** (`GET /api/iterations/{id}/spots?format=csv`): The file may start with comment lines `# algorithm_mode=simple` and `# grid_spacing_mm=0.8`. Parsers that expect only numeric/data rows should skip lines starting with `#`.
+- **JSON export** (`GET /api/iterations/{id}/export?format=json`): Includes `metadata.algorithm_mode` and `metadata.grid_spacing_mm` for reproducibility.
+
+## E2E tests (Playwright)
+
+With backend on :8000 and frontend on :4321:
+
+```bash
+npm run e2e
+```
+
 ## License
 
 MIT

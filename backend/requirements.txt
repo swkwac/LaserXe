@@ -1,7 +1,9 @@
 # API
 fastapi>=0.115.0
+python-dotenv>=1.0.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.0
+python-multipart>=0.0.9
 
 # Algorytmy i obrazy (zgodnie z tech-stack)
 numpy>=2.0
@@ -10,5 +12,6 @@ pillow>=11.0
 # Hasłowanie (seed użytkownika MVP)
 passlib[bcrypt]>=1.7
 
-# Testing
+# Testing (TestClient uses httpx)
 pytest>=8.0
+httpx>=0.28.0

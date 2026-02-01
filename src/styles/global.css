@@ -110,6 +110,15 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+@keyframes emission-flash {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

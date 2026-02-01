@@ -92,6 +92,8 @@ export type IterationParamsSnapshotDto = {
   angle_step_deg: number;
   coverage_pct: number | null;
   coverage_per_mask: CoveragePerMaskDto | null;
+  algorithm_mode?: "simple" | "advanced";
+  grid_spacing_mm?: number;
 };
 
 export type PagedResultDto<TItem> = {
@@ -210,6 +212,8 @@ export type IterationCreateCommand = {
   target_coverage_pct: number;
   coverage_per_mask?: CoveragePerMaskDto;
   is_demo?: boolean;
+  algorithm_mode?: "simple" | "advanced";
+  grid_spacing_mm?: number;
 };
 
 export type IterationUpdateCommand = {
@@ -222,6 +226,7 @@ export type IterationListQueryCommand = {
   status?: PlanIterationEntityDto["status"];
   // Query param is a boolean in API; DB stores as 0/1.
   is_demo?: boolean;
+  algorithm_mode?: "simple" | "advanced";
   sort?: "created_at" | "id";
   order?: "asc" | "desc";
 };

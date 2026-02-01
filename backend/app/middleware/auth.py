@@ -7,7 +7,7 @@ from app.auth.session import load_session_settings, verify_session_token
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_PATHS = {"/api/auth/login", "/api/auth/logout"}
+PUBLIC_PATHS = {"/api/auth/login"}
 
 
 async def auth_middleware(request: Request, call_next):

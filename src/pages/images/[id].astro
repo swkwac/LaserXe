@@ -1,0 +1,41 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import ImageDetailView from "../../components/images/ImageDetailView";
+
+const { id } = Astro.params;
+const imageId = id ? parseInt(id, 10) : NaN;
+const initialTab = Astro.url.searchParams.get("tab") ?? "masks";
+const initialIterationParam = Astro.url.searchParams.get("iteration");
+const initialIterationId = initialIterationParam
+  ? parseInt(initialIterationParam, 10)
+  : undefined;
+const initialDemo = Astro.url.searchParams.get("demo") === "1";
+---
+
+<Layout title={`Szczegóły obrazu ${isNaN(imageId) ? "" : `#${imageId}`} – LaserXe`}>
+  <main class="min-h-full px-4 py-6" role="main">
+    <nav class="mb-4 text-sm text-muted-foreground" aria-label="Breadcrumb">
+      <a href="/images" class="hover:text-foreground underline-offset-4 hover:underline">
+        Lista obrazów
+      </a>
+      {!isNaN(imageId) && (
+        <>
+          <span class="mx-2" aria-hidden="true">/</span>
+          <span aria-current="page">Szczegóły obrazu #{imageId}</span>
+        </>
+      )}
+    </nav>
+    {!isNaN(imageId) ? (
+      <ImageDetailView
+        client:load
+        imageId={imageId}
+        initialTab={initialTab}
+        initialIterationId={Number.isFinite(initialIterationId) ? initialIterationId : undefined}
+        initialDemo={initialDemo}
+      />
+    ) : (
+      <p class="text-destructive">Nieprawidłowy identyfikator obrazu.</p>
+      <a href="/images" class="mt-2 inline-block text-sm underline-offset-4 hover:underline">Powrót do listy</a>
+    )}
+  </main>
+</Layout>

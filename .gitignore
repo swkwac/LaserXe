@@ -27,9 +27,15 @@ pnpm-debug.log*
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.db
+backend/uploads/
 backend/.venv/
 .venv/
 *.pyc
 *.pyo
 # lokalna baza SQLite (domyślnie w katalogu projektu)
 laserme.db
+
+# Playwright E2E
+test-results/
+playwright-report/
+playwright/.cache/

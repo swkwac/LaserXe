@@ -1,0 +1,251 @@
+# REDO lesion 8 using the provided two files again, with:
+# - union width = 20 mm
+# - multi-component per color
+# - discard components <1%
+# - CLOCKWISE rotation
+# - correct px<->mm mapping
+# - outputs: CSV, graph, 2 GIFs
+
+import numpy as np, pandas as pd, math, matplotlib.pyplot as plt
+from PIL import Image
+from collections import deque
+import matplotlib.animation as animation
+
+# ---------------- CONFIG ----------------
+img_mask_path = "/mnt/data/zmiana skorna 8 z 3 maskami.png"
+img_clean_path = "/mnt/data/zmiana skorna 8.png"
+
+LESION_WIDTH_MM = 20.0
+CIRCLE_DIAM_MM = 25.0
+SPOT_D_MM = 0.3
+DTHETA_DEG = 5.0
+CANDIDATE_STEP_MM = 0.2
+DISCARD_FRAC = 0.01
+
+TARGETS = {"blue":0.20, "white":0.10, "green":0.05}
+
+# ---------------- LOAD IMAGES ----------------
+mask_img = Image.open(img_mask_path).convert("RGB")
+clean_img = Image.open(img_clean_path).convert("RGB")
+
+# enforce identical pixel grid
+if clean_img.size != mask_img.size:
+    clean_img = clean_img.resize(mask_img.size, Image.BILINEAR)
+
+rgb = np.asarray(mask_img).astype(np.float32)/255.0
+rgb_clean = np.asarray(clean_img).astype(np.float32)/255.0
+h,w = rgb.shape[:2]
+cx,cy = w/2, h/2
+
+# ---------------- MASK EXTRACTION ----------------
+R,G,B = rgb[...,0], rgb[...,1], rgb[...,2]
+raw_masks = {
+    "white": (R>0.92)&(G>0.92)&(B>0.92),
+    "green": (G>0.55)&(R<0.40)&(B<0.40),
+    "blue":  (B>0.55)&(G>0.40)&(R<0.45),
+}
+
+# ---------------- CONNECTED COMPONENTS ----------------
+def components(binary, min_px=200):
+    visited = np.zeros_like(binary,bool)
+    comps=[]
+    for y in range(binary.shape[0]):
+        for x in range(binary.shape[1]):
+            if binary[y,x] and not visited[y,x]:
+                q=deque([(y,x)]); visited[y,x]=True; pix=[]
+                while q:
+                    cy,cx=q.popleft(); pix.append((cy,cx))
+                    for dy in (-1,0,1):
+                        for dx in (-1,0,1):
+                            if dy==dx==0: continue
+                            ny,nx=cy+dy,cx+dx
+                            if 0<=ny<h and 0<=nx<w and binary[ny,nx] and not visited[ny,nx]:
+                                visited[ny,nx]=True; q.append((ny,nx))
+                if len(pix)>=min_px:
+                    comps.append(pix)
+    return comps
+
+def pix_to_mask(pix):
+    m=np.zeros((h,w),bool)
+    for y,x in pix: m[y,x]=True
+    return m
+
+comp_masks={}
+for c,raw in raw_masks.items():
+    comp_masks[c]=[pix_to_mask(p) for p in components(raw)]
+
+# ---------------- SCALING (UNION WIDTH = 20mm) ----------------
+union=np.zeros((h,w),bool)
+for ms in comp_masks.values():
+    for m in ms: union|=m
+
+ys,xs=np.where(union)
+bbox=(xs.min(),ys.min(),xs.max(),ys.max())
+px_per_mm=(bbox[2]-bbox[0]+1)/LESION_WIDTH_MM
+
+# ---------------- CIRCLE ----------------
+R_mm=CIRCLE_DIAM_MM/2
+yy,xx=np.mgrid[0:h,0:w]
+circle=((xx-cx)**2+(yy-cy)**2)<= (R_mm*px_per_mm)**2
+
+# ---------------- FILTER COMPONENTS ----------------
+final_masks={}
+for c,ms in comp_masks.items():
+    ms2=[m&circle for m in ms if (m&circle).sum()>0]
+    if not ms2:
+        final_masks[c]=[]; continue
+    areas=np.array([m.sum() for m in ms2],float)
+    keep=areas>=DISCARD_FRAC*areas.sum()
+    final_masks[c]=[m for m,k in zip(ms2,keep) if k]
+
+# ---------------- COORD CONVERSION ----------------
+def mm_to_px(x,y): return cx+x*px_per_mm, cy-y*px_per_mm
+def inside(x,y,m):
+    px,py=mm_to_px(x,y); xi,yi=int(round(px)),int(round(py))
+    return 0<=xi<w and 0<=yi<h and m[yi,xi]
+
+# ---------------- PLANNER ----------------
+spot_area=math.pi*(SPOT_D_MM/2)**2
+thetas=np.arange(0,math.pi,math.radians(DTHETA_DEG))
+
+def build_lines(mask):
+    lines=[]
+    for k,th in enumerate(thetas):
+        ct,st=math.cos(th),math.sin(th)
+        ts=np.arange(-R_mm,R_mm+1e-9,CANDIDATE_STEP_MM)
+        if k%2: ts=ts[::-1]
+        cand=[]
+        for t in ts:
+            x=t*ct; y=t*st
+            if x*x+y*y<=R_mm*R_mm and inside(x,y,mask):
+                cand.append((t,x,y))
+        lines.append((k,k*DTHETA_DEG,cand))
+    return lines
+
+def select(lines,min_d,avoid):
+    sel=[]; min2=min_d*min_d
+    for _,th,cand in lines:
+        last=None
+        for t,x,y in cand:
+            if last is not None and abs(t-last)<min_d: continue
+            if any((x-ax)**2+(y-ay)**2<min2 for ax,ay in avoid): continue
+            if any((x-sx)**2+(y-sy)**2<min2 for _,_,sx,sy in sel): continue
+            sel.append((th,t,x,y)); last=t
+    return sel
+
+def tune(lines,target,avoid):
+    lo,hi=SPOT_D_MM,5.0; best=[]
+    for _ in range(18):
+        mid=(lo+hi)/2
+        s=select(lines,mid,avoid)
+        if not best or abs(len(s)-target)<abs(len(best)-target): best=s
+        lo,hi=(mid,hi) if len(s)>target else (lo,mid)
+    return best
+
+# ---------------- PLAN ALL ----------------
+rows=[]; avoid=[]
+for c in ["blue","white","green"]:
+    area_px=sum(m.sum() for m in final_masks[c])
+    area_mm2=area_px/(px_per_mm**2) if area_px>0 else 0
+    target=int(round(TARGETS[c]*area_mm2/spot_area))
+    if target<=0: continue
+    weights=[m.sum() for m in final_masks[c]]
+    alloc=np.array(weights)/sum(weights)*target
+    alloc=np.maximum(1,np.round(alloc)).astype(int)
+    for cid,(m,n) in enumerate(zip(final_masks[c],alloc),1):
+        sel=tune(build_lines(m),int(n),avoid)
+        for th,t,x,y in sel:
+            rows.append((c,cid,th,t,x,y))
+        avoid+=[(x,y) for _,_,x,y in sel]
+
+df=pd.DataFrame(rows,columns=["mask","component","theta_deg","t_mm","x_mm","y_mm"])
+
+# interleaved order
+theta_vals=np.sort(df.theta_deg.unique())
+theta_k={th:i for i,th in enumerate(theta_vals)}
+df["theta_k"]=df.theta_deg.map(theta_k)
+df["t_sort"]=df.t_mm
+df.loc[df.theta_k%2==1,"t_sort"]*=-1
+df=df.sort_values(["theta_k","t_sort"]).reset_index(drop=True)
+df.insert(0,"index",np.arange(len(df)))
+
+# ---------------- SAVE CSV ----------------
+csv_out="/mnt/data/lesion8_REDO_motion.csv"
+df.to_csv(csv_out,index=False)
+
+# ---------------- GRAPH ----------------
+extent=[(0-cx)/px_per_mm,(w-cx)/px_per_mm,(cy-h)/px_per_mm,(cy-0)/px_per_mm]
+def ang(th): return math.radians(th)  # CLOCKWISE
+
+fig,ax=plt.subplots(figsize=(7,7))
+ax.set_aspect("equal"); ax.grid(ls="--",alpha=0.35)
+ax.add_patch(plt.Circle((0,0),R_mm,fill=False,lw=2))
+ax.imshow(rgb_clean,extent=extent,origin="upper")
+for th in np.arange(0,180,5):
+    a=ang(th)
+    ax.plot([-R_mm*math.cos(a),R_mm*math.cos(a)],
+            [-R_mm*math.sin(a),R_mm*math.sin(a)],":",alpha=0.15)
+ax.scatter(df.x_mm,df.y_mm,s=22)
+ax.set_title("Lesion 8 – REDO (20mm, clockwise, fixed scaling)")
+plt.tight_layout()
+graph_out="/mnt/data/lesion8_REDO_graph.png"
+fig.savefig(graph_out,dpi=200); plt.close(fig)
+
+# ---------------- CLEAN GIF ----------------
+def xy_from_t(t,th): 
+    a=ang(th); return t*math.cos(a), t*math.sin(a)
+
+events=[]
+for i in range(len(df)):
+    th,t=df.theta_deg[i],df.t_mm[i]
+    events.append(("emit",th,t,i))
+    if i<len(df)-1:
+        th2,t2=df.theta_deg[i+1],df.t_mm[i+1]
+        events.append(("move",th,t,t2) if th2==th else ("rot",t,th,th2))
+
+head=[]; fired=[]; axis=[]; flash=[]; fi=[]
+for e in events:
+    if e[0]=="emit":
+        _,th,t,i=e; fi.append(i)
+        for k in range(4):
+            head.append(xy_from_t(t,th)); fired.append(fi.copy())
+            axis.append(ang(th)); flash.append(k>=2)
+    elif e[0]=="move":
+        _,th,t0,t1=e
+        for u in np.linspace(0,1,4):
+            head.append(xy_from_t((1-u)*t0+u*t1,th))
+            fired.append(fi.copy()); axis.append(ang(th)); flash.append(False)
+    else:
+        _,t,th0,th1=e
+        for u in np.linspace(0,1,5):
+            th=(1-u)*th0+u*th1
+            head.append(xy_from_t(t,th))
+            fired.append(fi.copy()); axis.append(ang(th)); flash.append(False)
+
+frames=60; idx=np.linspace(0,len(head)-1,frames).astype(int)
+
+fig,ax=plt.subplots(figsize=(6.5,6.5))
+ax.set_aspect("equal"); ax.grid(ls="--",alpha=0.3)
+ax.add_patch(plt.Circle((0,0),R_mm,fill=False,lw=2))
+ax.imshow(rgb_clean,extent=extent,origin="upper")
+sc=ax.scatter([],[],s=24); hd=ax.scatter([],[],s=90,color="red")
+ln,=ax.plot([],[],lw=3,alpha=0.6)
+ax.set_xlim(-R_mm-2,R_mm+2); ax.set_ylim(-R_mm-2,R_mm+2)
+
+frames_img=[]
+for k in idx:
+    sc.set_offsets(np.c_[df.x_mm[fired[k]],df.y_mm[fired[k]]] if fired[k] else [])
+    hd.set_offsets([head[k]])
+    hd.set_sizes([160 if flash[k] else 90])
+    a=axis[k]
+    ln.set_data([-R_mm*math.cos(a),R_mm*math.cos(a)],
+                [-R_mm*math.sin(a),R_mm*math.sin(a)])
+    fig.canvas.draw()
+    buf=np.frombuffer(fig.canvas.tostring_rgb(),dtype=np.uint8)
+    frames_img.append(Image.fromarray(buf.reshape(fig.canvas.get_width_height()[::-1]+(3,))))
+plt.close(fig)
+
+gif_out="/mnt/data/lesion8_REDO_clean.gif"
+frames_img[0].save(gif_out,save_all=True,append_images=frames_img[1:],duration=80,loop=0)
+
+(csv_out,graph_out,gif_out,len(df))
