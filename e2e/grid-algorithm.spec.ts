@@ -55,7 +55,7 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByRole("radio", { name: /Prosty – siatka XY 800 µm/ }).check();
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 15000 });
 
     await expect(page.getByText("Liczba punktów")).toBeVisible();
   });
@@ -82,7 +82,7 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByRole("radio", { name: /Zaawansowany \(beta\)/ }).check();
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 15000 });
 
     await expect(page.getByText("Liczba punktów")).toBeVisible();
   });
@@ -112,7 +112,7 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByLabel("Odstęp siatki (mm)").fill("1");
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 15000 });
 
     await expect(page.getByText("Odstęp siatki")).toBeVisible();
     await expect(page.getByText("1 mm")).toBeVisible();

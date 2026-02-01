@@ -116,7 +116,7 @@ jobs:
           until curl -sf http://127.0.0.1:8000/docs > /dev/null; do sleep 1; done
           until curl -sf http://127.0.0.1:3000 > /dev/null; do sleep 1; done
           npm run e2e
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           AUTH_SECRET_KEY: ci-e2e-secret
           DATABASE_URL: sqlite:///./laserme.db
