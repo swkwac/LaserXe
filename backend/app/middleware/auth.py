@@ -11,6 +11,9 @@ PUBLIC_PATHS = {"/api/auth/login"}
 
 
 async def auth_middleware(request: Request, call_next):
+    # CORS preflight: browser sends OPTIONS without credentials; allow so actual request can run with cookie.
+    if request.method == "OPTIONS":
+        return await call_next(request)
     path = request.url.path
     if not path.startswith("/api") or path in PUBLIC_PATHS:
         return await call_next(request)

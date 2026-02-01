@@ -29,7 +29,7 @@ test.describe("Animation tab", () => {
     await expect(page).toHaveURL(/\/images\/\d+/);
 
     await page.getByRole("tab", { name: "Animacja" }).click();
-    await expect(page).toHaveURL(/tab=animacja/);
+    await expect(page).toHaveURL(/tab=animation/);
 
     await expect(page.getByText("Wizualizacja sekwencji emisji")).toBeVisible();
     await expect(page.getByRole("button", { name: "Odtwórz" })).toBeVisible();
@@ -57,7 +57,7 @@ test.describe("Animation tab", () => {
     await expect(page).toHaveURL(/\/images\/\d+/);
 
     await page.getByRole("tab", { name: "Animacja" }).click();
-    await expect(page).toHaveURL(/tab=animacja/);
+    await expect(page).toHaveURL(/tab=animation/);
 
     const combobox = page.getByRole("combobox");
     const hasOptions = await combobox
