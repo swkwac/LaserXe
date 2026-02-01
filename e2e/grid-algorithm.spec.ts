@@ -1,7 +1,7 @@
 /**
  * E2E: Plan tab algorithm selector (Prosty vs Zaawansowany beta).
  *
- * Requires: backend on :8000, frontend on :4321, default user user/123.
+ * Requires: backend on :8000, frontend on :3000 (see playwright.config baseURL), default user user/123.
  * At least one image in the list (or test will skip after login).
  */
 import { expect, test } from "@playwright/test";
@@ -10,8 +10,11 @@ test.describe("Plan tab algorithm selector", () => {
   test("login then open Plan tab and see algorithm options and Generuj plan", async ({ page }) => {
     await page.goto("/login");
 
-    await page.getByLabel("Login").fill("user");
-    await page.getByLabel("Hasło").fill("123");
+    await page.getByLabel("Login").click();
+    await page.getByLabel("Login").pressSequentially("user", { delay: 50 });
+    await page.getByLabel("Hasło").click();
+    await page.getByLabel("Hasło").pressSequentially("123", { delay: 50 });
+    await expect(page.getByRole("button", { name: "Zaloguj" })).toBeEnabled();
     await page.getByRole("button", { name: "Zaloguj" }).click();
 
     await expect(page).toHaveURL(/\/images/);
@@ -35,8 +38,11 @@ test.describe("Plan tab algorithm selector", () => {
 
   test("select Prosty, click Generuj plan, then see metrics (iteration created)", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Login").fill("user");
-    await page.getByLabel("Hasło").fill("123");
+    await page.getByLabel("Login").click();
+    await page.getByLabel("Login").pressSequentially("user", { delay: 50 });
+    await page.getByLabel("Hasło").click();
+    await page.getByLabel("Hasło").pressSequentially("123", { delay: 50 });
+    await expect(page.getByRole("button", { name: "Zaloguj" })).toBeEnabled();
     await page.getByRole("button", { name: "Zaloguj" }).click();
     await expect(page).toHaveURL(/\/images/);
 
@@ -62,8 +68,11 @@ test.describe("Plan tab algorithm selector", () => {
 
   test("select Zaawansowany (beta), click Generuj plan, then see metrics (iteration created)", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Login").fill("user");
-    await page.getByLabel("Hasło").fill("123");
+    await page.getByLabel("Login").click();
+    await page.getByLabel("Login").pressSequentially("user", { delay: 50 });
+    await page.getByLabel("Hasło").click();
+    await page.getByLabel("Hasło").pressSequentially("123", { delay: 50 });
+    await expect(page.getByRole("button", { name: "Zaloguj" })).toBeEnabled();
     await page.getByRole("button", { name: "Zaloguj" }).click();
     await expect(page).toHaveURL(/\/images/);
 
@@ -91,8 +100,11 @@ test.describe("Plan tab algorithm selector", () => {
     page,
   }) => {
     await page.goto("/login");
-    await page.getByLabel("Login").fill("user");
-    await page.getByLabel("Hasło").fill("123");
+    await page.getByLabel("Login").click();
+    await page.getByLabel("Login").pressSequentially("user", { delay: 50 });
+    await page.getByLabel("Hasło").click();
+    await page.getByLabel("Hasło").pressSequentially("123", { delay: 50 });
+    await expect(page.getByRole("button", { name: "Zaloguj" })).toBeEnabled();
     await page.getByRole("button", { name: "Zaloguj" }).click();
     await expect(page).toHaveURL(/\/images/);
 

@@ -1,7 +1,7 @@
 # Pull request verification: lint, unit tests, build, E2E (frontend + backend)
 # Branch: master (verified with git branch -a)
 # Uses npm ci, .nvmrc, env per job (no global secrets).
-# E2E: backend on :8000, Astro preview on :4321, default user user/123 (seed).
+# E2E: backend on :8000, Astro preview on :3000, default user user/123 (seed).
 
 name: PR verification
 

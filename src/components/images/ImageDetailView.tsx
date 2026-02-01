@@ -169,11 +169,13 @@ function ImageDetailView({
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki">
+      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki" role="tablist">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
+            role="tab"
+            aria-selected={selectedTab === tab.id}
             onClick={() => setTab(tab.id)}
             className={`rounded-t-md px-3 py-2 text-sm font-medium transition-colors ${
               selectedTab === tab.id
