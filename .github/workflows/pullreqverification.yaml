@@ -102,13 +102,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      # Astro preview must use --port 4321 so wait loop and Playwright baseURL match (config has server.port 3000)
+      # Frontend: astro.config server.port 3000 → preview on 3000. Backend: 8000. Playwright baseURL 3000.
       - name: Start servers and run E2E
         run: |
           (cd backend && uvicorn main:app --host 127.0.0.1 --port 8000) &
-          npx astro preview --port 4321 &
+          npm run preview &
+          sleep 3
           until curl -sf http://127.0.0.1:8000/docs > /dev/null; do sleep 1; done
-          until curl -sf http://127.0.0.1:4321 > /dev/null; do sleep 1; done
+          until curl -sf http://127.0.0.1:3000 > /dev/null; do sleep 1; done
           npm run e2e
         timeout-minutes: 10
         env:

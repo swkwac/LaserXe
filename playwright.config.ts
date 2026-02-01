@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * E2E tests require:
  * - Backend: cd backend && uvicorn main:app --port 8000
- * - Frontend: npm run dev (Astro on http://localhost:4321)
+ * - Frontend: npm run dev or npm run preview (Astro server.port in config, default 3000)
  * - Default user: user / 123 (from seed)
  */
 export default defineConfig({
@@ -14,7 +14,7 @@ export default defineConfig({
   workers: 1,
   reporter: "html",
   use: {
-    baseURL: "http://localhost:4321",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
