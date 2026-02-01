@@ -126,7 +126,7 @@ test.describe("Plan tab algorithm selector", () => {
 
     await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 15000 });
 
-    await expect(page.getByText("Odstęp siatki")).toBeVisible();
+    await expect(page.getByText("Odstęp siatki", { exact: true })).toBeVisible();
     await expect(page.getByText("1 mm")).toBeVisible();
   });
 });
