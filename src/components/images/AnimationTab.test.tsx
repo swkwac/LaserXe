@@ -44,7 +44,11 @@ const mockMask = (id: number): MaskDto =>
   ({
     id,
     image_id: 1,
-    vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 10 }],
+    vertices: [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 5, y: 10 },
+    ],
     mask_label: null,
     created_at: "2026-01-01T00:00:00Z",
   }) as MaskDto;
@@ -67,10 +71,7 @@ describe("AnimationTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(planApi.fetchImageFile).mockResolvedValue(new Blob());
-    vi.mocked(planApi.fetchIterations).mockResolvedValue([
-      mockIteration(1),
-      mockIteration(2),
-    ]);
+    vi.mocked(planApi.fetchIterations).mockResolvedValue([mockIteration(1), mockIteration(2)]);
     vi.mocked(planApi.fetchMasks).mockResolvedValue([mockMask(1)]);
     vi.mocked(planApi.fetchIterationSpots).mockResolvedValue([mockSpot(1)]);
   });
@@ -98,14 +99,7 @@ describe("AnimationTab", () => {
 
   it("calls onSelectIteration when user selects an iteration", async () => {
     const onSelect = vi.fn();
-    render(
-      <AnimationTab
-        imageId={1}
-        image={mockImage}
-        selectedIterationId={1}
-        onSelectIteration={onSelect}
-      />
-    );
+    render(<AnimationTab imageId={1} image={mockImage} selectedIterationId={1} onSelectIteration={onSelect} />);
 
     await waitFor(() => {
       expect(screen.getByRole("combobox")).toBeInTheDocument();

@@ -2,10 +2,8 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Label = React.forwardRef<
-  HTMLLabelElement,
-  React.ComponentProps<"label">
->(({ className, ...props }, ref) => {
+/* eslint-disable jsx-a11y/label-has-associated-control -- Label is a primitive; consumers pass htmlFor. */
+const Label = React.forwardRef<HTMLLabelElement, React.ComponentProps<"label">>(({ className, ...props }, ref) => {
   return (
     <label
       ref={ref}

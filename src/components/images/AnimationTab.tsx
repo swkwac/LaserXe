@@ -19,11 +19,11 @@ const ANIMATION_DURATION_MS = 5000;
 const ANIMATION_FPS = 12;
 const APERTURE_RADIUS_MM = 12.5;
 
-type AnimationTabFormValues = {
+interface AnimationTabFormValues {
   iterationId: number | "";
   showDiameterLines: boolean;
   showAxisLine: boolean;
-};
+}
 
 function AnimationTab({
   imageId,
@@ -74,16 +74,10 @@ function AnimationTab({
   }, [selectedIterationId]);
 
   const scale = imageSize && image.width_mm > 0 ? imageSize.w / image.width_mm : 1;
-  const centerPx =
-    imageSize && imageSize.w > 0 && imageSize.h > 0
-      ? { x: imageSize.w / 2, y: imageSize.h / 2 }
-      : null;
+  const centerPx = imageSize && imageSize.w > 0 && imageSize.h > 0 ? { x: imageSize.w / 2, y: imageSize.h / 2 } : null;
   const radiusPx = centerPx ? APERTURE_RADIUS_MM * scale : 0;
 
-  const totalFrames = Math.max(
-    1,
-    Math.round((ANIMATION_DURATION_MS / 1000) * ANIMATION_FPS)
-  );
+  const totalFrames = Math.max(1, Math.round((ANIMATION_DURATION_MS / 1000) * ANIMATION_FPS));
   const timeline = React.useMemo(() => {
     if (spots.length === 0) return [];
     return buildAnimationTimelineFromSpots(spots, scale);
@@ -91,19 +85,10 @@ function AnimationTab({
   const timelineIdx =
     timeline.length <= 1
       ? 0
-      : Math.min(
-          Math.round((currentFrameIndex / (totalFrames - 1)) * (timeline.length - 1)),
-          timeline.length - 1
-        );
-  const frame = timeline.length > 0 ? timeline[timelineIdx]! : null;
+      : Math.min(Math.round((currentFrameIndex / (totalFrames - 1)) * (timeline.length - 1)), timeline.length - 1);
+  const frame = timeline.length > 0 ? (timeline[timelineIdx] ?? null) : null;
 
-  useAnimationPlayback(
-    playing,
-    totalFrames,
-    ANIMATION_DURATION_MS,
-    setCurrentFrameIndex,
-    setPlaying
-  );
+  useAnimationPlayback(playing, totalFrames, ANIMATION_DURATION_MS, setCurrentFrameIndex, setPlaying);
 
   const handleIterationChange = React.useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -144,9 +129,7 @@ function AnimationTab({
               className="rounded-md border border-input bg-background px-2 py-1 text-sm"
               disabled={iterations.length === 0}
             >
-              {iterations.length === 0 && (
-                <option value="">Brak iteracji</option>
-              )}
+              {iterations.length === 0 && <option value="">Brak iteracji</option>}
               {iterations.map((it) => (
                 <option key={it.id} value={it.id}>
                   #{it.id} – {it.spots_count ?? 0} punktów
@@ -159,7 +142,10 @@ function AnimationTab({
       </div>
 
       {(errorIterations || errorSpots || errorImage) && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
           {errorIterations && <p>{errorIterations}</p>}
           {errorSpots && <p>{errorSpots}</p>}
           {errorImage && <p>{errorImage}</p>}
@@ -168,30 +154,13 @@ function AnimationTab({
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={handlePlay}
-            disabled={spots.length === 0 || playing}
-          >
+          <Button type="button" size="sm" onClick={handlePlay} disabled={spots.length === 0 || playing}>
             Odtwórz
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handlePause}
-            disabled={!playing}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={handlePause} disabled={!playing}>
             Wstrzymaj
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleReset}
-            disabled={spots.length === 0}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={handleReset} disabled={spots.length === 0}>
             Reset
           </Button>
         </div>
@@ -231,9 +200,7 @@ function AnimationTab({
         />
       </div>
 
-      {loadingSpots && selectedIterationId && (
-        <p className="text-sm text-muted-foreground">Ładowanie punktów…</p>
-      )}
+      {loadingSpots && selectedIterationId && <p className="text-sm text-muted-foreground">Ładowanie punktów…</p>}
 
       <div
         ref={containerRef}
@@ -270,10 +237,7 @@ function AnimationTab({
           </div>
         )}
         {isDemo && imageObjectUrl && (
-          <div
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            aria-hidden
-          >
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
             <span
               className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
               style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}

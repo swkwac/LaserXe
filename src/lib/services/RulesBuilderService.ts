@@ -9,7 +9,7 @@ export interface RulesBuildInput {
   /** Tech stack items; rendered as bullet list or "(none)" when empty. */
   techStack?: string[];
   /** Custom sections (title + content). Sections with empty title are skipped. */
-  sections?: Array<{ title: string; content: string }>;
+  sections?: { title: string; content: string }[];
 }
 
 const DEFAULT_PROJECT_NAME = "Project";
@@ -27,7 +27,11 @@ const EMPTY_TECH_STACK_PLACEHOLDER = "(none)";
  * - Custom sections: only those with non-empty title; blank content → "(empty)".
  * - Null/undefined input treated as empty object (minimal output).
  */
+/* eslint-disable @typescript-eslint/no-extraneous-class -- utility class with static methods only */
 export class RulesBuilderService {
+  /* eslint-disable-next-line @typescript-eslint/no-empty-function -- utility class: do not instantiate */
+  private constructor() {}
+
   static generateRulesContent(input?: RulesBuildInput | null): string {
     const opts = input ?? {};
     const lines: string[] = [];

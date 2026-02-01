@@ -42,9 +42,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
       setMasks(data.items ?? []);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") {
-        setError(
-          "Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany."
-        );
+        setError("Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany.");
         setMasks([]);
       }
     } finally {
@@ -93,9 +91,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         });
         if (!res.ok) {
           if (res.status === 0) {
-            setMaskError(
-              "Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS."
-            );
+            setMaskError("Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS.");
             return;
           }
           const data = await res.json().catch(() => ({}));
@@ -170,9 +166,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         });
         if (!res.ok) {
           if (res.status === 0) {
-            setMaskError(
-              "Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS."
-            );
+            setMaskError("Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS.");
             return;
           }
           const data = await res.json().catch(() => ({}));

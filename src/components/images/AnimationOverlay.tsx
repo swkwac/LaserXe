@@ -1,15 +1,7 @@
-import {
-  spotColor,
-  spotPxFromTopLeftMm,
-  type TimelineFrame,
-} from "@/lib/animationUtils";
+import { spotColor, spotPxFromTopLeftMm, type TimelineFrame } from "@/lib/animationUtils";
 import type { MaskDto, SpotDto } from "@/types";
 
-const MASK_COLORS = [
-  "rgba(255,255,255,0.35)",
-  "rgba(0,200,100,0.35)",
-  "rgba(80,120,255,0.35)",
-];
+const MASK_COLORS = ["rgba(255,255,255,0.35)", "rgba(0,200,100,0.35)", "rgba(80,120,255,0.35)"];
 
 export interface AnimationOverlayProps {
   imageSize: { w: number; h: number };
@@ -47,15 +39,15 @@ export function AnimationOverlay({
       {masks.map((mask, idx) => (
         <polygon
           key={mask.id}
-          points={mask.vertices
-            .map((v) => `${v.x * scale},${v.y * scale}`)
-            .join(" ")}
+          points={mask.vertices.map((v) => `${v.x * scale},${v.y * scale}`).join(" ")}
           fill={MASK_COLORS[idx % MASK_COLORS.length]}
           stroke="rgba(255,255,255,0.6)"
           strokeWidth={1}
         />
       ))}
-      {showDiameterLines && centerPx && radiusPx > 0 &&
+      {showDiameterLines &&
+        centerPx &&
+        radiusPx > 0 &&
         Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
           const rad = (deg * Math.PI) / 180;
           const cos = Math.cos(rad);
@@ -64,28 +56,14 @@ export function AnimationOverlay({
           const y1 = centerPx.y + radiusPx * sin;
           const x2 = centerPx.x + radiusPx * cos;
           const y2 = centerPx.y - radiusPx * sin;
-          return (
-            <line
-              key={deg}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              stroke="rgba(100,150,255,0.4)"
-              strokeWidth={1}
-            />
-          );
+          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(100,150,255,0.4)" strokeWidth={1} />;
         })}
       {frame && (
         <>
           {frame.firedIndices.map((spotIdx) => {
             const spot = spots[spotIdx];
             if (!spot) return null;
-            const spotPx = spotPxFromTopLeftMm(
-              spot.x_mm,
-              spot.y_mm,
-              scale
-            );
+            const spotPx = spotPxFromTopLeftMm(spot.x_mm, spot.y_mm, scale);
             return (
               <circle
                 key={spot.id}

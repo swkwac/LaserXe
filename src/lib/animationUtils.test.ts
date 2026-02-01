@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildAnimationTimelineFromSpots,
-  spotColor,
-  spotPxFromTopLeftMm,
-} from "./animationUtils";
+import { buildAnimationTimelineFromSpots, spotColor, spotPxFromTopLeftMm } from "./animationUtils";
 import type { SpotDto } from "@/types";
 
 describe("animationUtils", () => {
@@ -86,12 +82,18 @@ describe("animationUtils", () => {
       const spots = [spot(1, 0, 0), spot(2, 100, 100)];
       const timeline = buildAnimationTimelineFromSpots(spots, 1);
       expect(timeline.length).toBeGreaterThan(4);
-      const firstFrame = timeline[0]!;
-      expect(firstFrame.headPx).toEqual({ x: 0, y: 0 });
-      expect(firstFrame.firedIndices).toEqual([0]);
-      const lastFrame = timeline[timeline.length - 1]!;
-      expect(lastFrame.headPx).toEqual({ x: 100, y: 100 });
-      expect(lastFrame.firedIndices).toEqual([0, 1]);
+      const firstFrame = timeline[0];
+      expect(firstFrame).toBeDefined();
+      if (firstFrame) {
+        expect(firstFrame.headPx).toEqual({ x: 0, y: 0 });
+        expect(firstFrame.firedIndices).toEqual([0]);
+      }
+      const lastFrame = timeline[timeline.length - 1];
+      expect(lastFrame).toBeDefined();
+      if (lastFrame) {
+        expect(lastFrame.headPx).toEqual({ x: 100, y: 100 });
+        expect(lastFrame.firedIndices).toEqual([0, 1]);
+      }
     });
 
     it("uses scale for headPx positions", () => {

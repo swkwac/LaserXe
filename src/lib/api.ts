@@ -33,10 +33,7 @@ export type ApiFetchOptions = RequestInit & {
  * Fetch with credentials: 'include' and optional 401 → redirect to login.
  * Use for all authenticated API calls so that expired session redirects to login.
  */
-export async function apiFetch(
-  pathOrUrl: string,
-  options: ApiFetchOptions = {}
-): Promise<Response> {
+export async function apiFetch(pathOrUrl: string, options: ApiFetchOptions = {}): Promise<Response> {
   const { handle401 = true, ...init } = options;
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${getApiBase()}${pathOrUrl}`;
   const res = await fetch(url, {

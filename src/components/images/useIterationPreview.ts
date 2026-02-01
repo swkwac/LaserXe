@@ -1,9 +1,5 @@
 import * as React from "react";
-import {
-  fetchImageFile,
-  fetchIterationSpots,
-  fetchMasks,
-} from "@/lib/services/planApi";
+import { fetchImageFile, fetchIterationSpots, fetchMasks } from "@/lib/services/planApi";
 import type { MaskDto, SpotDto } from "@/types";
 
 export interface UseIterationPreviewResult {

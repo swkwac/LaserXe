@@ -8,11 +8,7 @@ export interface LogoutButtonProps {
   children?: React.ReactNode;
 }
 
-function LogoutButton({
-  redirectPath = "/login",
-  className,
-  children = "Wyloguj",
-}: LogoutButtonProps) {
+function LogoutButton({ redirectPath = "/login", className, children = "Wyloguj" }: LogoutButtonProps) {
   const [isLoading, setIsLoading] = React.useState(false);
 
   const handleClick = React.useCallback(async () => {

@@ -105,14 +105,10 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
     <div className="space-y-4" aria-label="Zakładka Audit log">
       <h2 className="text-sm font-medium">Audit log</h2>
       {iterationIdFilter != null && !onlyThisImage && (
-        <p className="text-sm text-muted-foreground">
-          Wpisy tylko dla iteracji #{iterationIdFilter}.
-        </p>
+        <p className="text-sm text-muted-foreground">Wpisy tylko dla iteracji #{iterationIdFilter}.</p>
       )}
       {onlyThisImage && imageId != null && (
-        <p className="text-sm text-muted-foreground">
-          Wpisy tylko dla obrazu #{imageId}.
-        </p>
+        <p className="text-sm text-muted-foreground">Wpisy tylko dla obrazu #{imageId}.</p>
       )}
 
       <div className="flex flex-wrap items-center gap-4 rounded-md border border-border bg-muted/30 p-3">
@@ -186,9 +182,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           {error}
         </p>
       )}
-      {!loading && !error && items.length === 0 && (
-        <p className="text-sm text-muted-foreground">Brak wpisów audytu.</p>
-      )}
+      {!loading && !error && items.length === 0 && <p className="text-sm text-muted-foreground">Brak wpisów audytu.</p>}
       {!loading && !error && items.length > 0 && (
         <>
           <div className="overflow-x-auto rounded-md border border-border">
@@ -210,9 +204,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
                     <td className="px-3 py-2">{entry.iteration_id ?? "—"}</td>
                     <td className="px-3 py-2">{eventTypeLabel(entry.event_type)}</td>
                     <td className="px-3 py-2 max-w-[200px] truncate" title={JSON.stringify(entry.payload ?? {})}>
-                      {entry.payload && Object.keys(entry.payload).length > 0
-                        ? JSON.stringify(entry.payload)
-                        : "—"}
+                      {entry.payload && Object.keys(entry.payload).length > 0 ? JSON.stringify(entry.payload) : "—"}
                     </td>
                     <td className="px-3 py-2">{entry.user_id ?? "—"}</td>
                     <td className="px-3 py-2">{formatDate(entry.created_at)}</td>

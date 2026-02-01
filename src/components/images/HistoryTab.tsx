@@ -20,9 +20,9 @@ export interface HistoryTabProps {
 
 type AlgorithmFilter = "all" | "simple" | "advanced";
 
-function HistoryTab({ imageId, image, onShowIteration }: HistoryTabProps) {
+function HistoryTab({ imageId, onShowIteration }: HistoryTabProps) {
   const [items, setItems] = React.useState<IterationDto[]>([]);
-  const [total, setTotal] = React.useState(0);
+  const [, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<number | null>(null);
@@ -41,9 +41,7 @@ function HistoryTab({ imageId, image, onShowIteration }: HistoryTabProps) {
       params.set("algorithm_mode", algorithmFilter);
     }
     try {
-      const res = await apiFetch(
-        `/api/images/${imageId}/iterations?${params.toString()}`
-      );
+      const res = await apiFetch(`/api/images/${imageId}/iterations?${params.toString()}`);
       if (!res.ok) {
         if (res.status === 404) {
           setItems([]);
@@ -73,12 +71,9 @@ function HistoryTab({ imageId, image, onShowIteration }: HistoryTabProps) {
     fetchList();
   }, [fetchList]);
 
-  const handleAlgorithmFilterChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setAlgorithmFilter(e.target.value as AlgorithmFilter);
-    },
-    []
-  );
+  const handleAlgorithmFilterChange = React.useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setAlgorithmFilter(e.target.value as AlgorithmFilter);
+  }, []);
 
   const handleDelete = React.useCallback(
     async (iterationId: number) => {
@@ -93,9 +88,7 @@ function HistoryTab({ imageId, image, onShowIteration }: HistoryTabProps) {
           await fetchList();
         } else {
           const data = await res.json().catch(() => ({}));
-          setError(
-            typeof data?.detail === "string" ? data.detail : "Nie udało się usunąć iteracji."
-          );
+          setError(typeof data?.detail === "string" ? data.detail : "Nie udało się usunąć iteracji.");
         }
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
@@ -177,8 +170,7 @@ function HistoryTab({ imageId, image, onShowIteration }: HistoryTabProps) {
                     {it.status === "draft" && (
                       <>
                         {" "}
-                        <span className="text-muted-foreground">|</span>
-                        {" "}
+                        <span className="text-muted-foreground">|</span>{" "}
                         <button
                           type="button"
                           className="text-destructive underline-offset-4 hover:underline disabled:opacity-50"

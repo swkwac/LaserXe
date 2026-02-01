@@ -6,32 +6,32 @@ export type IsoDateTimeStringDto = string;
 export type SqliteBoolDto = 0 | 1;
 
 // --- Entity DTOs (1:1 with DB tables) ---
-export type UserEntityDto = {
+export interface UserEntityDto {
   id: IdDto;
   login: string;
   password_hash: string;
   created_at: IsoDateTimeStringDto;
   updated_at: IsoDateTimeStringDto | null;
-};
+}
 
-export type ImageEntityDto = {
+export interface ImageEntityDto {
   id: IdDto;
   storage_path: string;
   width_mm: number;
   created_by: IdDto | null;
   created_at: IsoDateTimeStringDto;
-};
+}
 
-export type MaskEntityDto = {
+export interface MaskEntityDto {
   id: IdDto;
   image_id: IdDto;
   // Stored as JSON text in DB; API DTO uses structured points.
   vertices: string;
   mask_label: string | null;
   created_at: IsoDateTimeStringDto;
-};
+}
 
-export type PlanIterationEntityDto = {
+export interface PlanIterationEntityDto {
   id: IdDto;
   image_id: IdDto;
   parent_id: IdDto | null;
@@ -48,9 +48,9 @@ export type PlanIterationEntityDto = {
   overlap_count: number | null;
   plan_valid: SqliteBoolDto;
   created_at: IsoDateTimeStringDto;
-};
+}
 
-export type SpotEntityDto = {
+export interface SpotEntityDto {
   id: IdDto;
   iteration_id: IdDto;
   sequence_index: number;
@@ -61,32 +61,27 @@ export type SpotEntityDto = {
   mask_id: IdDto | null;
   component_id: number | null;
   created_at: IsoDateTimeStringDto;
-};
+}
 
-export type AuditLogEntityDto = {
+export interface AuditLogEntityDto {
   id: IdDto;
   iteration_id: IdDto | null;
-  event_type:
-    | "iteration_created"
-    | "iteration_accepted"
-    | "iteration_rejected"
-    | "plan_generated"
-    | "fallback_used";
+  event_type: "iteration_created" | "iteration_accepted" | "iteration_rejected" | "plan_generated" | "fallback_used";
   payload: string | null;
   user_id: IdDto | null;
   created_at: IsoDateTimeStringDto;
-};
+}
 
 // --- Shared DTO building blocks ---
-export type MaskVertexDto = {
+export interface MaskVertexDto {
   x: number;
   y: number;
-};
+}
 
 // Map of mask_id (or label) -> coverage percentage.
 export type CoveragePerMaskDto = Record<string, number>;
 
-export type IterationParamsSnapshotDto = {
+export interface IterationParamsSnapshotDto {
   scale_mm: number;
   spot_diameter_um: number;
   angle_step_deg: number;
@@ -94,30 +89,28 @@ export type IterationParamsSnapshotDto = {
   coverage_per_mask: CoveragePerMaskDto | null;
   algorithm_mode?: "simple" | "advanced";
   grid_spacing_mm?: number;
-};
+}
 
-export type PagedResultDto<TItem> = {
+export interface PagedResultDto<TItem> {
   items: TItem[];
   total: number;
   page: number;
   page_size: number;
-};
+}
 
-export type ItemsResultDto<TItem> = {
+export interface ItemsResultDto<TItem> {
   items: TItem[];
-};
+}
 
 // --- Auth DTOs ---
 export type AuthUserDto = Pick<UserEntityDto, "id" | "login">;
 
-export type AuthLoginResponseDto =
-  | { token: string; user: AuthUserDto }
-  | { user: AuthUserDto };
+export type AuthLoginResponseDto = { token: string; user: AuthUserDto } | { user: AuthUserDto };
 
 // --- Health DTO ---
-export type HealthStatusDto = {
+export interface HealthStatusDto {
   status: "ok";
-};
+}
 
 // --- Image DTOs ---
 export type ImageDto = ImageEntityDto;
@@ -158,7 +151,7 @@ export type ExportSpotDto = Omit<SpotDto, "created_at"> & {
   theta_k?: number;
 };
 
-export type IterationExportJsonDto = {
+export interface IterationExportJsonDto {
   metadata: {
     version: string;
     iteration_id: IdDto;
@@ -179,48 +172,48 @@ export type IterationExportJsonDto = {
     plan_valid: SqliteBoolDto;
     errors?: string[];
   };
-};
+}
 
 // --- Command Models (requests / query params) ---
-export type AuthLoginCommand = {
+export interface AuthLoginCommand {
   login: string;
   password: string;
-};
+}
 
-export type ImageUploadCommand = {
+export interface ImageUploadCommand {
   file: File;
   width_mm: number;
-};
+}
 
 export type ImageUpdateCommand = Partial<Pick<ImageDto, "width_mm">>;
 
-export type ImageListQueryCommand = {
+export interface ImageListQueryCommand {
   page?: number;
   page_size?: number;
   sort?: "created_at" | "id";
   order?: "asc" | "desc";
-};
+}
 
-export type MaskCreateCommand = {
+export interface MaskCreateCommand {
   vertices: MaskVertexDto[];
   mask_label?: string;
-};
+}
 
 export type MaskUpdateCommand = Partial<MaskCreateCommand>;
 
-export type IterationCreateCommand = {
+export interface IterationCreateCommand {
   target_coverage_pct: number;
   coverage_per_mask?: CoveragePerMaskDto;
   is_demo?: boolean;
   algorithm_mode?: "simple" | "advanced";
   grid_spacing_mm?: number;
-};
+}
 
-export type IterationUpdateCommand = {
+export interface IterationUpdateCommand {
   status?: PlanIterationEntityDto["status"];
-};
+}
 
-export type IterationListQueryCommand = {
+export interface IterationListQueryCommand {
   page?: number;
   page_size?: number;
   status?: PlanIterationEntityDto["status"];
@@ -229,13 +222,13 @@ export type IterationListQueryCommand = {
   algorithm_mode?: "simple" | "advanced";
   sort?: "created_at" | "id";
   order?: "asc" | "desc";
-};
+}
 
-export type SpotListQueryCommand = {
+export interface SpotListQueryCommand {
   format?: "json" | "csv";
-};
+}
 
-export type AuditLogListQueryCommand = {
+export interface AuditLogListQueryCommand {
   page?: number;
   page_size?: number;
   iteration_id?: IdDto;
@@ -245,8 +238,8 @@ export type AuditLogListQueryCommand = {
   to?: IsoDateTimeStringDto;
   sort?: "created_at";
   order?: "asc" | "desc";
-};
+}
 
-export type ExportQueryCommand = {
+export interface ExportQueryCommand {
   format: "json" | "png" | "jpg";
-};
+}

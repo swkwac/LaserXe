@@ -41,12 +41,8 @@ function ImageDetailView({
   const [image, setImage] = React.useState<ImageDto | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [selectedTab, setSelectedTab] = React.useState<TabId>(
-    isValidTab(initialTab) ? initialTab : "masks"
-  );
-  const [selectedIterationId, setSelectedIterationId] = React.useState<number | null>(
-    initialIterationId ?? null
-  );
+  const [selectedTab, setSelectedTab] = React.useState<TabId>(isValidTab(initialTab) ? initialTab : "masks");
+  const [selectedIterationId, setSelectedIterationId] = React.useState<number | null>(initialIterationId ?? null);
   const [isDemo, setIsDemo] = React.useState(initialDemo);
 
   React.useEffect(() => {
@@ -159,9 +155,7 @@ function ImageDetailView({
             >
               ← Powrót do listy
             </a>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight">
-              Szczegóły obrazu #{image.id}
-            </h1>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight">Szczegóły obrazu #{image.id}</h1>
           </div>
           {isDemo && (
             <span
@@ -175,10 +169,7 @@ function ImageDetailView({
         </div>
       </header>
 
-      <nav
-        className="flex flex-wrap gap-1 border-b border-border"
-        aria-label="Zakładki"
-      >
+      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -198,12 +189,7 @@ function ImageDetailView({
 
       <div className="min-h-[200px] rounded-md border border-border bg-muted/30 p-4">
         {selectedTab === "masks" && (
-          <MasksTab
-            imageId={imageId}
-            image={image}
-            onImageUpdate={setImage}
-            isDemo={isDemo}
-          />
+          <MasksTab imageId={imageId} image={image} onImageUpdate={setImage} isDemo={isDemo} />
         )}
         {selectedTab === "plan" && (
           <PlanTab
@@ -211,7 +197,9 @@ function ImageDetailView({
             image={image}
             selectedIterationId={selectedIterationId}
             onIterationSelected={setSelectedIterationId}
-            onIterationUpdated={() => {}}
+            onIterationUpdated={() => {
+              /* no-op: parent can refresh via other means */
+            }}
           />
         )}
         {selectedTab === "animation" && (
@@ -237,12 +225,7 @@ function ImageDetailView({
             }}
           />
         )}
-        {selectedTab === "audit" && (
-          <AuditLogTab
-            imageId={imageId}
-            iterationIdFilter={selectedIterationId}
-          />
-        )}
+        {selectedTab === "audit" && <AuditLogTab imageId={imageId} iterationIdFilter={selectedIterationId} />}
       </div>
     </section>
   );

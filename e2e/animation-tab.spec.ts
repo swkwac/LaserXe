@@ -7,9 +7,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Animation tab", () => {
-  test("login then open Animacja tab and see iteration select and play controls", async ({
-    page,
-  }) => {
+  test("login then open Animacja tab and see iteration select and play controls", async ({ page }) => {
     await page.goto("/login");
 
     await page.getByLabel("Login").fill("user");
@@ -36,9 +34,7 @@ test.describe("Animation tab", () => {
     await expect(page.getByRole("button", { name: "Reset" })).toBeVisible();
   });
 
-  test("select iteration, click Odtwórz then Wstrzymaj, see frame counter", async ({
-    page,
-  }) => {
+  test("select iteration, click Odtwórz then Wstrzymaj, see frame counter", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("Login").fill("user");
     await page.getByLabel("Hasło").fill("123");
@@ -58,7 +54,10 @@ test.describe("Animation tab", () => {
     await expect(page).toHaveURL(/tab=animacja/);
 
     const combobox = page.getByRole("combobox");
-    const hasOptions = await combobox.locator("option").count().then((n) => n > 1);
+    const hasOptions = await combobox
+      .locator("option")
+      .count()
+      .then((n) => n > 1);
     if (!hasOptions) {
       test.skip();
       return;

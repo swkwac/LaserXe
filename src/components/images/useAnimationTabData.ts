@@ -1,10 +1,5 @@
 import * as React from "react";
-import {
-  fetchImageFile,
-  fetchIterationSpots,
-  fetchIterations,
-  fetchMasks,
-} from "@/lib/services/planApi";
+import { fetchImageFile, fetchIterationSpots, fetchIterations, fetchMasks } from "@/lib/services/planApi";
 import type { IterationDto, MaskDto, SpotDto } from "@/types";
 
 export interface UseAnimationTabDataResult {
@@ -35,10 +30,7 @@ const ERROR_IMAGE = "Nie udało się załadować obrazu.";
  * When selectedFromParent is null, resolves to first iteration id once iterations load.
  * Revokes object URL on cleanup or when imageId changes.
  */
-export function useAnimationTabData(
-  imageId: number,
-  selectedFromParent: number | null
-): UseAnimationTabDataResult {
+export function useAnimationTabData(imageId: number, selectedFromParent: number | null): UseAnimationTabDataResult {
   const [imageObjectUrl, setImageObjectUrl] = React.useState<string | null>(null);
   const [iterations, setIterations] = React.useState<IterationDto[]>([]);
   const [masks, setMasks] = React.useState<MaskDto[]>([]);
@@ -124,7 +116,7 @@ export function useAnimationTabData(
     return () => ac.abort();
   }, [imageId]);
 
-  const selectedIterationId = selectedFromParent ?? (iterations[0]?.id ?? null);
+  const selectedIterationId = selectedFromParent ?? iterations[0]?.id ?? null;
 
   // Spots (when iteration selected)
   React.useEffect(() => {

@@ -3,10 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import LoginForm from "../components/auth/LoginForm";
 
 const rawRedirect = Astro.url.searchParams.get("redirect") ?? "/images";
-const redirectUrl =
-  rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
-    ? rawRedirect
-    : "/images";
+const redirectUrl = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//") ? rawRedirect : "/images";
 const messageParam = Astro.url.searchParams.get("message") ?? null;
 ---
 

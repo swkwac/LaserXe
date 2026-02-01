@@ -12,9 +12,7 @@ export interface UseIterationResult {
  * Fetches a single iteration by id. When iterationId is null, returns null iteration and does not fetch.
  * Revokes no resources; suitable for JSON-only response.
  */
-export function useIteration(
-  iterationId: number | null | undefined
-): UseIterationResult {
+export function useIteration(iterationId: number | null | undefined): UseIterationResult {
   const [iteration, setIteration] = React.useState<IterationDto | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

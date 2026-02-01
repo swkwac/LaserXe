@@ -1,11 +1,11 @@
 import type { SpotDto } from "@/types";
 
 /** One frame: head position in pixel (from top-left mm), fired spot indices, flash. */
-export type TimelineFrame = {
+export interface TimelineFrame {
   headPx: { x: number; y: number };
   firedIndices: number[];
   flash: boolean;
-};
+}
 
 /** Hue for gradient: blue (220) -> red (0). */
 export function spotColor(index: number, total: number): string {
@@ -16,11 +16,7 @@ export function spotColor(index: number, total: number): string {
 }
 
 /** Spot/head position in pixel from top-left mm (API/DB convention). Aligns with mask vertices. */
-export function spotPxFromTopLeftMm(
-  xMm: number,
-  yMm: number,
-  scale: number
-): { x: number; y: number } {
+export function spotPxFromTopLeftMm(xMm: number, yMm: number, scale: number): { x: number; y: number } {
   return {
     x: xMm * scale,
     y: yMm * scale,
@@ -31,13 +27,11 @@ export function spotPxFromTopLeftMm(
  * Build timeline from spot positions (x_mm, y_mm in top-left mm).
  * Head moves from spot to spot in emission order; works for both simple (snake) and advanced (diameter) algorithms.
  */
-export function buildAnimationTimelineFromSpots(
-  spots: SpotDto[],
-  scale: number
-): TimelineFrame[] {
+export function buildAnimationTimelineFromSpots(spots: SpotDto[], scale: number): TimelineFrame[] {
   const frames: TimelineFrame[] = [];
   for (let i = 0; i < spots.length; i++) {
-    const spot = spots[i]!;
+    const spot = spots[i];
+    if (!spot) continue;
     const headPx = spotPxFromTopLeftMm(spot.x_mm, spot.y_mm, scale);
     const firedIndices = Array.from({ length: i + 1 }, (_, k) => k);
     // Flash on emit: a few frames at this position
@@ -50,7 +44,8 @@ export function buildAnimationTimelineFromSpots(
     }
     // Move to next spot (interpolate)
     if (i < spots.length - 1) {
-      const next = spots[i + 1]!;
+      const next = spots[i + 1];
+      if (!next) continue;
       const nextPx = spotPxFromTopLeftMm(next.x_mm, next.y_mm, scale);
       const dist = Math.hypot(nextPx.x - headPx.x, nextPx.y - headPx.y);
       const n = Math.max(2, Math.min(20, Math.round(dist / 4)));

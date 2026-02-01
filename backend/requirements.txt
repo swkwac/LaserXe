@@ -10,7 +10,9 @@ numpy>=2.0
 pillow>=11.0
 
 # Hasłowanie (seed użytkownika MVP)
+# bcrypt 4.1+ usunęło __about__; passlib wymaga bcrypt<4.1 (zob. pyca/bcrypt#684)
 passlib[bcrypt]>=1.7
+bcrypt>=4.0,<4.1
 
 # Testing (TestClient uses httpx)
 pytest>=8.0

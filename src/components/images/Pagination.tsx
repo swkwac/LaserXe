@@ -11,13 +11,7 @@ export interface PaginationProps {
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
-function Pagination({
-  page,
-  page_size,
-  total,
-  onPageChange,
-  onPageSizeChange,
-}: PaginationProps) {
+function Pagination({ page, page_size, total, onPageChange, onPageSizeChange }: PaginationProps) {
   const lastPage = Math.max(1, Math.ceil(total / page_size));
   const canPrev = page > 1;
   const canNext = page < lastPage;
@@ -31,10 +25,7 @@ function Pagination({
   }, [canNext, page, onPageChange]);
 
   return (
-    <nav
-      className="flex flex-wrap items-center gap-2"
-      aria-label="Nawigacja paginacji"
-    >
+    <nav className="flex flex-wrap items-center gap-2" aria-label="Nawigacja paginacji">
       <Button
         type="button"
         variant="outline"

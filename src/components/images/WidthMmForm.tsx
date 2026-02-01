@@ -39,9 +39,7 @@ function WidthMmForm({ image, onSave }: WidthMmFormProps) {
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setError(
-            typeof data?.detail === "string" ? data.detail : "Nie udało się zapisać."
-          );
+          setError(typeof data?.detail === "string" ? data.detail : "Nie udało się zapisać.");
           return;
         }
         const updated = (await res.json()) as ImageDto;

@@ -8,13 +8,7 @@ import {
   exportIterationJson,
   updateIterationStatus,
 } from "@/lib/services/planApi";
-import type {
-  ImageDto,
-  IterationCreateCommand,
-  IterationDto,
-  MaskDto,
-  SpotDto,
-} from "@/types";
+import type { ImageDto, IterationCreateCommand, IterationDto } from "@/types";
 import PlanParamsForm from "./PlanParamsForm";
 import { useIteration } from "./useIteration";
 import { useIterationPreview } from "./useIterationPreview";
@@ -36,11 +30,7 @@ const defaultParams: IterationCreateCommand = {
 };
 
 /** Spot position in pixel from top-left mm (API/DB convention). Aligns with mask vertices. */
-function spotPxFromTopLeftMm(
-  xMm: number,
-  yMm: number,
-  scale: number
-): { x: number; y: number } {
+function spotPxFromTopLeftMm(xMm: number, yMm: number, scale: number): { x: number; y: number } {
   return { x: xMm * scale, y: yMm * scale };
 }
 
@@ -69,23 +59,22 @@ function PlanTab({
   const [previewImageSize, setPreviewImageSize] = React.useState<{ w: number; h: number } | null>(null);
 
   const { iteration: iterationFromHook } = useIteration(selectedIterationIdFromParent);
-  const { imageUrl: previewImageUrl, masks: previewMasks, spots: previewSpots } =
-    useIterationPreview(imageId, selectedIterationIdFromParent);
+  const {
+    imageUrl: previewImageUrl,
+    masks: previewMasks,
+    spots: previewSpots,
+  } = useIterationPreview(imageId, selectedIterationIdFromParent);
 
   React.useEffect(() => {
     setPatchedIteration(null);
   }, [selectedIterationIdFromParent]);
 
   const fetchedIteration =
-    patchedIteration?.id === selectedIterationIdFromParent
-      ? patchedIteration
-      : iterationFromHook;
+    patchedIteration?.id === selectedIterationIdFromParent ? patchedIteration : iterationFromHook;
 
   const selectedIteration =
     selectedFromParent ??
-    (fetchedIteration && selectedIterationIdFromParent === fetchedIteration.id
-      ? fetchedIteration
-      : null) ??
+    (fetchedIteration && selectedIterationIdFromParent === fetchedIteration.id ? fetchedIteration : null) ??
     lastGenerated;
 
   const handleGenerate = React.useCallback(async () => {
@@ -141,48 +130,37 @@ function PlanTab({
     }
   }, []);
 
-  const handleExportImage = React.useCallback(
-    async (iterationId: number, format: "png" | "jpg") => {
-      try {
-        const blob = await exportIterationImage(iterationId, format);
-        if (blob) downloadBlob(blob, `iteration-${iterationId}-export.${format}`);
-      } catch {
-        // ignore
-      }
-    },
-    []
-  );
+  const handleExportImage = React.useCallback(async (iterationId: number, format: "png" | "jpg") => {
+    try {
+      const blob = await exportIterationImage(iterationId, format);
+      if (blob) downloadBlob(blob, `iteration-${iterationId}-export.${format}`);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const canAccept =
     selectedIteration &&
     selectedIteration.status === "draft" &&
     selectedIteration.plan_valid === 1 &&
     selectedIteration.is_demo === 0;
-  const canReject =
-    selectedIteration && selectedIteration.status === "draft";
+  const canReject = selectedIteration && selectedIteration.status === "draft";
 
   return (
     <div className="space-y-6" aria-label="Zakładka Plan">
       <div className="rounded-md border border-border bg-card p-4">
         <h2 className="text-sm font-medium mb-3">Parametry planu</h2>
-        <PlanParamsForm
-          value={params}
-          onChange={setParams}
-          disabled={generating}
-        />
-        <Button
-          type="button"
-          className="mt-4"
-          onClick={handleGenerate}
-          disabled={generating}
-          aria-busy={generating}
-        >
+        <PlanParamsForm value={params} onChange={setParams} disabled={generating} />
+        <Button type="button" className="mt-4" onClick={handleGenerate} disabled={generating} aria-busy={generating}>
           {generating ? "Generowanie…" : "Generuj plan"}
         </Button>
       </div>
 
       {error && (
-        <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {error}
         </div>
       )}
@@ -236,32 +214,16 @@ function PlanTab({
             >
               Odrzuć
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleExportJson(selectedIteration.id)}
-            >
+            <Button type="button" variant="outline" onClick={() => handleExportJson(selectedIteration.id)}>
               Eksport JSON
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleExportCsv(selectedIteration.id)}
-            >
+            <Button type="button" variant="outline" onClick={() => handleExportCsv(selectedIteration.id)}>
               Pobierz CSV (spoty)
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleExportImage(selectedIteration.id, "png")}
-            >
+            <Button type="button" variant="outline" onClick={() => handleExportImage(selectedIteration.id, "png")}>
               Eksport PNG
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleExportImage(selectedIteration.id, "jpg")}
-            >
+            <Button type="button" variant="outline" onClick={() => handleExportImage(selectedIteration.id, "jpg")}>
               Eksport JPG
             </Button>
           </div>
@@ -295,50 +257,38 @@ function PlanTab({
                       };
                       const apertureRadiusMm = 12.5;
                       const radiusPx = apertureRadiusMm * scale;
-                      const MASK_COLORS = [
-                        "rgba(255,255,255,0.35)",
-                        "rgba(0,200,100,0.35)",
-                        "rgba(80,120,255,0.35)",
-                      ];
+                      const MASK_COLORS = ["rgba(255,255,255,0.35)", "rgba(0,200,100,0.35)", "rgba(80,120,255,0.35)"];
                       return (
                         <>
                           {previewMasks.map((mask, idx) => (
                             <polygon
                               key={mask.id}
-                              points={mask.vertices
-                                .map((v) => `${v.x * scale},${v.y * scale}`)
-                                .join(" ")}
+                              points={mask.vertices.map((v) => `${v.x * scale},${v.y * scale}`).join(" ")}
                               fill={MASK_COLORS[idx % MASK_COLORS.length]}
                               stroke="rgba(255,255,255,0.6)"
                               strokeWidth={1}
                             />
                           ))}
                           {/* Diameters at 0°, 5°, ..., 175° (same as backend grid) */}
-                          {Array.from({ length: 36 }, (_, i) => i * 5).map(
-                            (deg) => {
-                              const rad = (deg * Math.PI) / 180;
-                              const cos = Math.cos(rad);
-                              const sin = Math.sin(rad);
-                              return (
-                                <line
-                                  key={deg}
-                                  x1={centerPx.x - radiusPx * cos}
-                                  y1={centerPx.y + radiusPx * sin}
-                                  x2={centerPx.x + radiusPx * cos}
-                                  y2={centerPx.y - radiusPx * sin}
-                                  stroke="rgba(100,150,255,0.35)"
-                                  strokeWidth={1}
-                                />
-                              );
-                            }
-                          )}
+                          {Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
+                            const rad = (deg * Math.PI) / 180;
+                            const cos = Math.cos(rad);
+                            const sin = Math.sin(rad);
+                            return (
+                              <line
+                                key={deg}
+                                x1={centerPx.x - radiusPx * cos}
+                                y1={centerPx.y + radiusPx * sin}
+                                x2={centerPx.x + radiusPx * cos}
+                                y2={centerPx.y - radiusPx * sin}
+                                stroke="rgba(100,150,255,0.35)"
+                                strokeWidth={1}
+                              />
+                            );
+                          })}
                           {/* Spots: position from top-left mm (x_mm, y_mm) so they align with mask */}
                           {previewSpots.map((spot) => {
-                            const px = spotPxFromTopLeftMm(
-                              spot.x_mm,
-                              spot.y_mm,
-                              scale
-                            );
+                            const px = spotPxFromTopLeftMm(spot.x_mm, spot.y_mm, scale);
                             return (
                               <circle
                                 key={spot.id}

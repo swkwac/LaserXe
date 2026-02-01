@@ -18,7 +18,6 @@ export interface PlanParamsFormProps {
 }
 
 const ALGORITHM_SIMPLE: "simple" | "advanced" = "simple";
-const ALGORITHM_ADVANCED: "simple" | "advanced" = "advanced";
 
 function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
   const inputId = useId();
@@ -26,8 +25,7 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
   const gridSpacingId = useId();
   const target = value.target_coverage_pct;
   const algorithmMode = value.algorithm_mode ?? ALGORITHM_SIMPLE;
-  const gridSpacingMm =
-    value.grid_spacing_mm ?? DEFAULT_GRID_SPACING_MM;
+  const gridSpacingMm = value.grid_spacing_mm ?? DEFAULT_GRID_SPACING_MM;
 
   const handleGridSpacingChange = React.useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,8 +68,10 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
       >
         <span className="text-sm font-medium">Algorytm</span>
         <div className="flex flex-col gap-2">
-          <label className="flex items-start gap-2 cursor-pointer">
+          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- label wraps input + text; htmlFor/id link present */}
+          <label htmlFor={`${algorithmFieldsetId}-simple`} className="flex items-start gap-2 cursor-pointer">
             <input
+              id={`${algorithmFieldsetId}-simple`}
               type="radio"
               name="algorithm_mode"
               value="simple"
@@ -82,16 +82,15 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
             />
             <span>
               <span className="font-medium">Prosty – siatka XY 800 µm</span>
-              <p
-                id={`${algorithmFieldsetId}-simple-hint`}
-                className="text-xs text-muted-foreground"
-              >
+              <p id={`${algorithmFieldsetId}-simple-hint`} className="text-xs text-muted-foreground">
                 Punkty w jednakowych odstępach 800 µm, tylko wewnątrz masek.
               </p>
             </span>
           </label>
-          <label className="flex items-start gap-2 cursor-pointer">
+          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- label wraps input + text; htmlFor/id link present */}
+          <label htmlFor={`${algorithmFieldsetId}-advanced`} className="flex items-start gap-2 cursor-pointer">
             <input
+              id={`${algorithmFieldsetId}-advanced`}
               type="radio"
               name="algorithm_mode"
               value="advanced"
@@ -102,10 +101,7 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
             />
             <span>
               <span className="font-medium">{getAdvancedAlgorithmLabel()}</span>
-              <p
-                id={`${algorithmFieldsetId}-advanced-hint`}
-                className="text-xs text-muted-foreground"
-              >
+              <p id={`${algorithmFieldsetId}-advanced-hint`} className="text-xs text-muted-foreground">
                 Algorytm w trakcie rozwoju; pokrycie docelowe i średnice co 5°.
               </p>
             </span>
@@ -134,9 +130,7 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
       )}
 
       <div className="space-y-2">
-        <Label htmlFor={inputId}>
-          Docelowe pokrycie (%)
-        </Label>
+        <Label htmlFor={inputId}>Docelowe pokrycie (%)</Label>
         <Input
           id={inputId}
           type="number"

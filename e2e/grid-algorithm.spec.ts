@@ -7,9 +7,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Plan tab algorithm selector", () => {
-  test("login then open Plan tab and see algorithm options and Generuj plan", async ({
-    page,
-  }) => {
+  test("login then open Plan tab and see algorithm options and Generuj plan", async ({ page }) => {
     await page.goto("/login");
 
     await page.getByLabel("Login").fill("user");
@@ -35,9 +33,7 @@ test.describe("Plan tab algorithm selector", () => {
     await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible();
   });
 
-  test("select Prosty, click Generuj plan, then see metrics (iteration created)", async ({
-    page,
-  }) => {
+  test("select Prosty, click Generuj plan, then see metrics (iteration created)", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("Login").fill("user");
     await page.getByLabel("Hasło").fill("123");
@@ -59,16 +55,12 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByRole("radio", { name: /Prosty – siatka XY 800 µm/ }).check();
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(
-      page.getByRole("button", { name: "Generuj plan" })
-    ).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
 
     await expect(page.getByText("Liczba punktów")).toBeVisible();
   });
 
-  test("select Zaawansowany (beta), click Generuj plan, then see metrics (iteration created)", async ({
-    page,
-  }) => {
+  test("select Zaawansowany (beta), click Generuj plan, then see metrics (iteration created)", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("Login").fill("user");
     await page.getByLabel("Hasło").fill("123");
@@ -90,9 +82,7 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByRole("radio", { name: /Zaawansowany \(beta\)/ }).check();
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(
-      page.getByRole("button", { name: "Generuj plan" })
-    ).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
 
     await expect(page.getByText("Liczba punktów")).toBeVisible();
   });
@@ -122,9 +112,7 @@ test.describe("Plan tab algorithm selector", () => {
     await page.getByLabel("Odstęp siatki (mm)").fill("1");
     await page.getByRole("button", { name: "Generuj plan" }).click();
 
-    await expect(
-      page.getByRole("button", { name: "Generuj plan" })
-    ).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "Generuj plan" })).toBeVisible({ timeout: 20000 });
 
     await expect(page.getByText("Odstęp siatki")).toBeVisible();
     await expect(page.getByText("1 mm")).toBeVisible();

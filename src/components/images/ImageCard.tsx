@@ -29,22 +29,14 @@ function ImageCard({ image, imageUrl, demoMode }: ImageCardProps) {
     >
       <div className="aspect-video w-full bg-muted flex items-center justify-center">
         {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt=""
-            className="h-full w-full object-contain"
-          />
+          <img src={imageUrl} alt="" className="h-full w-full object-contain" />
         ) : (
           <span className="text-muted-foreground text-sm">Obraz</span>
         )}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <p className="text-sm text-muted-foreground">
-          Szerokość: {image.width_mm} mm
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {formatDate(image.created_at)}
-        </p>
+        <p className="text-sm text-muted-foreground">Szerokość: {image.width_mm} mm</p>
+        <p className="text-xs text-muted-foreground">{formatDate(image.created_at)}</p>
         <Button asChild variant="outline" size="sm" className="mt-auto">
           <a href={href}>Otwórz</a>
         </Button>

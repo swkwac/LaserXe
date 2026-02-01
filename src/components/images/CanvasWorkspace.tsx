@@ -63,9 +63,10 @@ function CanvasWorkspace({
 
   const scale = imageSize && widthMm > 0 ? imageSize.w / widthMm : 1;
   const editingMask = editingMaskId != null ? masks.find((m) => m.id === editingMaskId) : null;
-  const editVerticesPx =
-    editedVerticesPx ??
-    (editingMask ? mmToPx(editingMask.vertices, scale) : []);
+  const editVerticesPx = React.useMemo(
+    () => editedVerticesPx ?? (editingMask ? mmToPx(editingMask.vertices, scale) : []),
+    [editedVerticesPx, editingMask, scale]
+  );
 
   React.useEffect(() => {
     setEditedVerticesPx(null);
@@ -90,7 +91,7 @@ function CanvasWorkspace({
       if (x < 0 || y < 0 || x > imageSize.w || y > imageSize.h) return;
       setDrawingPoints((prev) => [...prev, { x, y }]);
     },
-    [disabled, isDrawing, imageSize, imageUrl]
+    [disabled, isDrawing, imageSize]
   );
 
   const handleStartDrawing = React.useCallback(() => {
@@ -202,9 +203,17 @@ function CanvasWorkspace({
 
       <div
         ref={containerRef}
+        role="button"
+        tabIndex={0}
         className="relative inline-block max-w-full border border-border rounded-md overflow-hidden bg-muted/30"
         style={{ cursor: isDrawing ? "crosshair" : "default" }}
         onClick={handleCanvasClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleCanvasClick(e as unknown as React.MouseEvent<HTMLDivElement>);
+          }
+        }}
       >
         {imageUrl && (
           <>
@@ -228,18 +237,13 @@ function CanvasWorkspace({
                 preserveAspectRatio="xMidYMid meet"
               >
                 {masks.map((mask, idx) => {
-                  const vertsPx =
-                    editingMaskId === mask.id ? editVerticesPx : mmToPx(mask.vertices, scale);
+                  const vertsPx = editingMaskId === mask.id ? editVerticesPx : mmToPx(mask.vertices, scale);
                   return (
                     <polygon
                       key={mask.id}
                       points={vertsPx.map((p) => `${p.x},${p.y}`).join(" ")}
                       fill={MASK_COLORS[idx % MASK_COLORS.length]}
-                      stroke={
-                        editingMaskId === mask.id
-                          ? "rgba(255,180,0,0.95)"
-                          : "rgba(255,255,255,0.8)"
-                      }
+                      stroke={editingMaskId === mask.id ? "rgba(255,180,0,0.95)" : "rgba(255,255,255,0.8)"}
                       strokeWidth={editingMaskId === mask.id ? 3 : 2}
                     />
                   );
@@ -283,10 +287,7 @@ function CanvasWorkspace({
           </div>
         )}
         {isDemo && imageUrl && (
-          <div
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            aria-hidden
-          >
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
             <span
               className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
               style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}

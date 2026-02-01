@@ -37,7 +37,11 @@ const mockMask = (id: number): MaskDto =>
   ({
     id,
     image_id: 1,
-    vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 10 }],
+    vertices: [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 5, y: 10 },
+    ],
     mask_label: null,
     created_at: "2026-01-01T00:00:00Z",
   }) as MaskDto;
@@ -60,20 +64,16 @@ describe("useAnimationTabData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(planApi.fetchImageFile).mockResolvedValue(new Blob());
-    vi.mocked(planApi.fetchIterations).mockResolvedValue([
-      mockIteration(1),
-      mockIteration(2),
-    ]);
+    vi.mocked(planApi.fetchIterations).mockResolvedValue([mockIteration(1), mockIteration(2)]);
     vi.mocked(planApi.fetchMasks).mockResolvedValue([mockMask(1)]);
-    vi.mocked(planApi.fetchIterationSpots).mockResolvedValue([
-      mockSpot(1),
-      mockSpot(2),
-    ]);
+    vi.mocked(planApi.fetchIterationSpots).mockResolvedValue([mockSpot(1), mockSpot(2)]);
     if (typeof URL.createObjectURL === "undefined") {
       vi.stubGlobal("URL", {
         ...globalThis.URL,
         createObjectURL: () => "blob:mock",
-        revokeObjectURL: () => {},
+        revokeObjectURL: () => {
+          /* mock no-op */
+        },
       });
     }
   });
@@ -82,10 +82,7 @@ describe("useAnimationTabData", () => {
     renderHook(() => useAnimationTabData(42, null));
 
     await waitFor(() => {
-      expect(planApi.fetchIterations).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({ signal: expect.anything() })
-      );
+      expect(planApi.fetchIterations).toHaveBeenCalledWith(42, expect.objectContaining({ signal: expect.anything() }));
     });
     expect(planApi.fetchMasks).toHaveBeenCalled();
     expect(planApi.fetchImageFile).toHaveBeenCalled();
@@ -136,7 +133,7 @@ describe("useAnimationTabData", () => {
 
     expect(result.current.loadingIterations).toBe(true);
 
-    resolveIterations!([mockIteration(1)]);
+    resolveIterations([mockIteration(1)]);
     await waitFor(() => {
       expect(result.current.loadingIterations).toBe(false);
     });

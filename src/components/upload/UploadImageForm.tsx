@@ -28,10 +28,7 @@ export interface UploadImageFormProps {
   redirectToDetail?: boolean;
 }
 
-function UploadImageForm({
-  onSuccess,
-  redirectToDetail = true,
-}: UploadImageFormProps) {
+function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageFormProps) {
   const [file, setFile] = React.useState<File | null>(null);
   const [widthMm, setWidthMm] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
@@ -134,8 +131,7 @@ function UploadImageForm({
     [file, widthMm, onSuccess, redirectToDetail]
   );
 
-  const submitDisabled =
-    isSubmitting || !file || !widthMm.trim() || parseFloat(widthMm) <= 0;
+  const submitDisabled = isSubmitting || !file || !widthMm.trim() || parseFloat(widthMm) <= 0;
 
   return (
     <form
@@ -156,11 +152,7 @@ function UploadImageForm({
         />
         {previewUrl && (
           <div className="mt-2 aspect-video max-h-48 w-full overflow-hidden rounded-md border border-border bg-muted">
-            <img
-              src={previewUrl}
-              alt="Podgląd"
-              className="h-full w-full object-contain"
-            />
+            <img src={previewUrl} alt="Podgląd" className="h-full w-full object-contain" />
           </div>
         )}
       </div>

@@ -116,10 +116,7 @@ function ImagesList({
         <div className="h-10 w-48 animate-pulse rounded bg-muted" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="aspect-video rounded-lg bg-muted animate-pulse"
-            />
+            <div key={i} className="aspect-video rounded-lg bg-muted animate-pulse" />
           ))}
         </div>
       </section>
@@ -140,21 +137,13 @@ function ImagesList({
           className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           <p>{errorMessage}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={handleRetry}
-          >
+          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={handleRetry}>
             Odśwież
           </Button>
         </div>
       )}
 
-      {!errorMessage && items.length === 0 && (
-        <EmptyState onAddImage={handleAddImage} />
-      )}
+      {!errorMessage && items.length === 0 && <EmptyState onAddImage={handleAddImage} />}
 
       {!errorMessage && items.length > 0 && (
         <>

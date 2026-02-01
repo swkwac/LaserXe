@@ -148,19 +148,12 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
         <Button type="submit" disabled={submitDisabled} aria-busy={isSubmitting}>
           {isSubmitting ? "Logowanie…" : "Zaloguj"}
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleDemoClick}
-          disabled={isSubmitting}
-        >
+        <Button type="button" variant="secondary" onClick={handleDemoClick} disabled={isSubmitting}>
           Tryb demo
         </Button>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">
-        Dane demo: user / 123
-      </p>
+      <p className="text-center text-xs text-muted-foreground">Dane demo: user / 123</p>
     </form>
   );
 }
