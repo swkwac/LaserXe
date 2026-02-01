@@ -1,5 +1,6 @@
 -- Kolumna algorithm_mode w plan_iterations (filtr/analytics; params_snapshot nadal źródłem prawdy)
 -- Tabela: plan_iterations
+-- Uruchamiane po create_initial_schema (kolejność po nazwie pliku).
 
 alter table plan_iterations add column algorithm_mode text;
 

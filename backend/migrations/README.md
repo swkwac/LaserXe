@@ -6,6 +6,8 @@ Skrypty SQL do wersjonowania schematu bazy laserme 2.0a MVP.
 
 `YYYYMMDDHHmmss_krotki_opis.sql` (UTC), np. `20260130140000_create_initial_schema.sql`.
 
+**Kolejność:** Migracje są stosowane w kolejności **sortowania po nazwie pliku**. Migracja, która tworzy tabelę, musi mieć nazwę wcześniejszą niż migracje, które odwołują się do tej tabeli (np. `create_initial_schema` przed `add_plan_iterations_algorithm_mode`).
+
 ## Schemat (decyzje projektowe)
 
 | Tabela | Opis |
@@ -51,3 +53,5 @@ Zamknięta lista (enum w kodzie, np. Python/TypeScript):
 - Zmienna środowiskowa `DATABASE_URL` (np. `sqlite:///./laserme.db`); domyślnie plik `./laserme.db`.
 - Skrypt tworzy tabelę `schema_version`, wykonuje pliki `*.sql` z `backend/migrations/` w kolejności nazwy, następnie seed domyślnego użytkownika (login: **user**, hasło: **123**) jeśli tabela `users` jest pusta. Wymaga: `passlib[bcrypt]`.
 - Weryfikacja schematu po migracjach: `python backend/scripts/verify_schema.py [ścieżka_do_bazy]` – wypisuje tabele, kolumny i indeksy oraz listę zastosowanych migracji.
+
+**Uwaga (zmiana nazwy migracji algorithm_mode):** Migracja `add_plan_iterations_algorithm_mode` została przeniesiona z `20250201120000_...` na `20260130140300_...`, żeby wykonywała się po utworzeniu tabeli `plan_iterations`. Jeśli Twoja baza ma już wpis `20250201120000_add_plan_iterations_algorithm_mode.sql` w `schema_version`, po aktualizacji kodu dodaj ręcznie wpis `20260130140300_add_plan_iterations_algorithm_mode.sql` do `schema_version`, żeby nie uruchamiać tej migracji ponownie (kolumna `algorithm_mode` już istnieje).
