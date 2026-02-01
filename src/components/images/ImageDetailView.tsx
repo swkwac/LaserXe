@@ -169,24 +169,28 @@ function ImageDetailView({
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki" role="tablist">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={selectedTab === tab.id}
-            onClick={() => setTab(tab.id)}
-            className={`rounded-t-md px-3 py-2 text-sm font-medium transition-colors ${
-              selectedTab === tab.id
-                ? "border border-b-0 border-border bg-background text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            aria-current={selectedTab === tab.id ? "page" : undefined}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki">
+        {/* tablist has no native HTML element; div is the standard container for ARIA tablist */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role */}
+        <div role="tablist" className="flex flex-wrap gap-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selectedTab === tab.id}
+              onClick={() => setTab(tab.id)}
+              className={`rounded-t-md px-3 py-2 text-sm font-medium transition-colors ${
+                selectedTab === tab.id
+                  ? "border border-b-0 border-border bg-background text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              aria-current={selectedTab === tab.id ? "page" : undefined}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
       <div className="min-h-[200px] rounded-md border border-border bg-muted/30 p-4">
