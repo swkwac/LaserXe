@@ -94,6 +94,11 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./backend/laserme.db
 
+      - name: Seed E2E image
+        run: python backend/scripts/seed_e2e_image.py
+        env:
+          DATABASE_URL: sqlite:///./backend/laserme.db
+
       - name: Build frontend
         run: npm run build
         env:

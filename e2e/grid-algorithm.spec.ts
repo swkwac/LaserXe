@@ -17,7 +17,7 @@ test.describe("Plan tab algorithm selector", () => {
     await expect(page).toHaveURL(/\/images/);
 
     const firstImageLink = page.getByRole("link", { name: "Otwórz" }).first();
-    const hasImages = await firstImageLink.isVisible().catch(() => false);
+    const hasImages = await firstImageLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasImages) {
       test.skip();
       return;
@@ -41,7 +41,7 @@ test.describe("Plan tab algorithm selector", () => {
     await expect(page).toHaveURL(/\/images/);
 
     const firstImageLink = page.getByRole("link", { name: "Otwórz" }).first();
-    const hasImages = await firstImageLink.isVisible().catch(() => false);
+    const hasImages = await firstImageLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasImages) {
       test.skip();
       return;
@@ -68,7 +68,7 @@ test.describe("Plan tab algorithm selector", () => {
     await expect(page).toHaveURL(/\/images/);
 
     const firstImageLink = page.getByRole("link", { name: "Otwórz" }).first();
-    const hasImages = await firstImageLink.isVisible().catch(() => false);
+    const hasImages = await firstImageLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasImages) {
       test.skip();
       return;
@@ -97,7 +97,7 @@ test.describe("Plan tab algorithm selector", () => {
     await expect(page).toHaveURL(/\/images/);
 
     const firstImageLink = page.getByRole("link", { name: "Otwórz" }).first();
-    const hasImages = await firstImageLink.isVisible().catch(() => false);
+    const hasImages = await firstImageLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasImages) {
       test.skip();
       return;
