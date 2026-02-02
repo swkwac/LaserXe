@@ -110,7 +110,7 @@ function HistoryTab({ imageId, onShowIteration }: HistoryTabProps) {
           <select
             value={algorithmFilter}
             onChange={handleAlgorithmFilterChange}
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
             aria-label="Filtruj po algorytmie"
           >
             <option value="all">Wszystkie</option>

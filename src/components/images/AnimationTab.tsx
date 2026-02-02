@@ -126,7 +126,7 @@ function AnimationTab({
             <select
               value={iterationId === "" ? "" : String(iterationId)}
               onChange={handleIterationChange}
-              className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+              className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
               disabled={iterations.length === 0}
             >
               {iterations.length === 0 && <option value="">Brak iteracji</option>}

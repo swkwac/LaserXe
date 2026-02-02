@@ -103,7 +103,7 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
       {displayMessage && (
         <div
           role="alert"
-          className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-foreground"
+          className="rounded-xl border-2 border-primary/50 bg-primary/10 px-3 py-2 text-sm text-foreground"
         >
           {displayMessage}
         </div>

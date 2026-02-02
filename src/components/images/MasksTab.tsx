@@ -204,12 +204,12 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
 
   return (
     <div className="space-y-6" aria-label="Zakładka Maski">
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="laserme-card">
         <h2 className="text-sm font-medium mb-2">Szerokość zmiany (skala)</h2>
         <WidthMmForm image={image} onSave={handleImageUpdate} />
       </div>
 
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="laserme-card">
         <h2 className="text-sm font-medium mb-2">Obszar roboczy – maski</h2>
         {loading && <p className="text-sm text-muted-foreground">Ładowanie masek…</p>}
         {error && (

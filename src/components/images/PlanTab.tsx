@@ -148,7 +148,7 @@ function PlanTab({
 
   return (
     <div className="space-y-6" aria-label="Zakładka Plan">
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="laserme-card">
         <h2 className="text-sm font-medium mb-3">Parametry planu</h2>
         <PlanParamsForm value={params} onChange={setParams} disabled={generating} />
         <Button type="button" className="mt-4" onClick={handleGenerate} disabled={generating} aria-busy={generating}>
@@ -166,7 +166,7 @@ function PlanTab({
       )}
 
       {selectedIteration && (
-        <div className="rounded-md border border-border bg-card p-4 space-y-4">
+        <div className="laserme-card space-y-4">
           <h2 className="text-sm font-medium mb-2">Metryki (ostatnia iteracja)</h2>
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">Algorytm</dt>

@@ -180,10 +180,10 @@ function ImageDetailView({
               role="tab"
               aria-selected={selectedTab === tab.id}
               onClick={() => setTab(tab.id)}
-              className={`rounded-t-md px-3 py-2 text-sm font-medium transition-colors ${
+              className={`rounded-t-xl px-4 py-2 text-sm font-medium transition-colors ${
                 selectedTab === tab.id
-                  ? "border border-b-0 border-border bg-background text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "border-2 border-b-0 border-primary bg-white text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/50"
               }`}
               aria-current={selectedTab === tab.id ? "page" : undefined}
             >
@@ -193,7 +193,7 @@ function ImageDetailView({
         </div>
       </nav>
 
-      <div className="min-h-[200px] rounded-md border border-border bg-muted/30 p-4">
+      <div className="min-h-[200px] laserme-card rounded-t-none">
         {selectedTab === "masks" && (
           <MasksTab imageId={imageId} image={image} onImageUpdate={setImage} isDemo={isDemo} />
         )}

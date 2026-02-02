@@ -3,26 +3,33 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* LaserMe design tokens */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --laserme-primary: #ce0538;
+  --laserme-primary-hover: #a8042d;
+  --laserme-bg: #f5f5f5;
+  --laserme-border-gray: #b7b7b7;
+  --laserme-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05), 0 2px 4px -1px rgb(0 0 0 / 0.1);
+  --radius: 0.75rem;
+  --radius-pill: 9999px;
+  --background: var(--laserme-bg);
+  --foreground: #242429;
+  --card: #ffffff;
+  --card-foreground: #242429;
+  --popover: #ffffff;
+  --popover-foreground: #242429;
+  --primary: var(--laserme-primary);
+  --primary-foreground: #ffffff;
+  --secondary: #f0f0f0;
+  --secondary-foreground: #242429;
+  --muted: #f5f5f5;
+  --muted-foreground: #6b6b6b;
+  --accent: #f0f0f0;
+  --accent-foreground: #242429;
+  --destructive: #b91c1c;
+  --border: var(--laserme-border-gray);
+  --input: var(--laserme-border-gray);
+  --ring: var(--laserme-primary);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -73,10 +80,12 @@
 }
 
 @theme inline {
+  --font-sans: "Exo", ui-sans-serif, system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-pill: var(--radius-pill);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -124,6 +133,18 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
   }
+}
+
+/* LaserMe card: white bg, red border, soft shadow */
+.laserme-card {
+  @apply rounded-xl border-2 border-primary bg-white p-4;
+  box-shadow: var(--laserme-shadow);
+}
+
+/* LaserMe card without padding (e.g. for image cards with full-bleed image) */
+.laserme-card-flat {
+  @apply rounded-xl border-2 border-primary bg-white;
+  box-shadow: var(--laserme-shadow);
 }

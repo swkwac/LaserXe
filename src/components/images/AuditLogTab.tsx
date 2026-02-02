@@ -111,7 +111,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
         <p className="text-sm text-muted-foreground">Wpisy tylko dla obrazu #{imageId}.</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-4 rounded-md border border-border bg-muted/30 p-3">
+      <div className="laserme-card flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Typ zdarzenia:</span>
           <select
@@ -120,7 +120,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               setEventType(e.target.value);
               setPage(1);
             }}
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
           >
             {EVENT_TYPES.map((t) => (
               <option key={t || "all"} value={t}>
@@ -138,7 +138,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               setFromDate(e.target.value);
               setPage(1);
             }}
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
           />
         </label>
         <label className="flex items-center gap-2 text-sm">
@@ -150,7 +150,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               setToDate(e.target.value);
               setPage(1);
             }}
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
           />
         </label>
         {imageId != null && (
@@ -169,7 +169,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
         )}
         <button
           type="button"
-          className="rounded-md border border-input bg-background px-3 py-1 text-sm hover:bg-muted"
+          className="rounded-xl border-2 border-primary bg-white px-3 py-1 text-sm text-primary hover:bg-primary/5"
           onClick={() => fetchList()}
         >
           Odśwież
@@ -185,7 +185,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
       {!loading && !error && items.length === 0 && <p className="text-sm text-muted-foreground">Brak wpisów audytu.</p>}
       {!loading && !error && items.length > 0 && (
         <>
-          <div className="overflow-x-auto rounded-md border border-border">
+          <div className="overflow-x-auto rounded-xl border-2 border-border">
             <table className="w-full text-sm" aria-label="Tabela audytu">
               <thead>
                 <tr className="border-b border-border bg-muted/50">

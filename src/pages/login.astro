@@ -7,10 +7,10 @@ const redirectUrl = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
 const messageParam = Astro.url.searchParams.get("message") ?? null;
 ---
 
-<Layout title="Logowanie – LaserXe">
+<Layout title="Logowanie – LaserXe" showHeader={false}>
   <main class="flex min-h-full flex-col items-center justify-center px-4 py-12" role="main">
-    <div class="w-full max-w-sm space-y-6">
-      <h1 class="text-center text-2xl font-semibold tracking-tight">Logowanie</h1>
+    <div class="laserme-card w-full max-w-sm space-y-6">
+      <h1 class="text-center text-2xl font-semibold tracking-tight text-foreground">Logowanie</h1>
       <LoginForm client:load redirectUrl={redirectUrl} message={messageParam} />
     </div>
   </main>

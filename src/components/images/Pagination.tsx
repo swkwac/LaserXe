@@ -51,7 +51,7 @@ function Pagination({ page, page_size, total, onPageChange, onPageSizeChange }: 
       </Button>
       {onPageSizeChange && (
         <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          className="h-9 rounded-xl border-2 border-input bg-white px-2 text-sm focus:border-primary"
           value={page_size}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
           aria-label="Liczba na stronie"

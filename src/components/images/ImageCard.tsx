@@ -24,7 +24,7 @@ function ImageCard({ image, imageUrl, demoMode }: ImageCardProps) {
 
   return (
     <article
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs"
+      className="flex flex-col overflow-hidden rounded-xl border-2 border-primary bg-white shadow-md"
       aria-label={label}
     >
       <div className="aspect-video w-full bg-muted flex items-center justify-center">
