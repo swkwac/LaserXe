@@ -1,0 +1,17 @@
+---
+import Layout from "../layouts/Layout.astro";
+import GridGeneratorPage from "../components/grid/GridGeneratorPage";
+---
+
+<Layout title="Generator siatki – LaserXe">
+  <main class="min-h-full px-4 py-6" role="main">
+    <header class="mb-6 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
+      <h1 class="text-xl font-semibold tracking-tight text-foreground">Generator siatki</h1>
+    </header>
+    <p class="mb-6 text-sm text-muted-foreground">
+      Generuj siatkę punktów emisji dla apertury prostej (12×12 mm) lub zaawansowanej (25 mm średnicy).
+      Nie wymaga obrazu.
+    </p>
+    <GridGeneratorPage client:load />
+  </main>
+</Layout>

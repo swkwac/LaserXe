@@ -35,7 +35,7 @@ def _square_mask(mask_id: int, cx_mm: float, cy_mm: float, side_mm: float) -> Ma
 
 
 def test_emission_order_0_to_180() -> None:
-    """Spots should be emitted in angle order 0°, 5°, 10°, ..., 175°; within each line t alternates (even: asc, odd: desc)."""
+    """Spots should be emitted diameter-by-diameter 0° to 175° (36 diameters); within each diameter t alternates (even: asc, odd: desc)."""
     # One mask well inside aperture, ~5% coverage
     side = 6.0  # 36 mm²
     m = _square_mask(1, 0, 0, side)
@@ -47,20 +47,20 @@ def test_emission_order_0_to_180() -> None:
     )
     assert result.spots_count >= 1
     spots = result.spots
-    # First diameter should be 0°
-    first_theta = spots[0].theta_deg
-    assert first_theta == 0.0 or abs(first_theta) < 0.01
-    # Angles in sequence should follow 0°, 5°, 10°, ..., 175° (reference convention)
-    seen_angles: list[float] = []
+
+    def diameter_angle(th: float) -> float:
+        return th if th < 180.0 else th - 180.0
+
+    seen_diameters: list[float] = []
     for s in spots:
-        th = s.theta_deg
-        if not seen_angles or abs(th - seen_angles[-1]) > 0.01:
-            seen_angles.append(th)
-    # Distinct angles should be in [0, 180] and non-decreasing (0°, then 5° or 10°, ...)
-    for i, th in enumerate(seen_angles):
-        assert 0 <= th <= 180, f"Angle {th} should be in 0..180"
+        d = diameter_angle(s.theta_deg)
+        if not seen_diameters or abs(d - seen_diameters[-1]) > 0.01:
+            seen_diameters.append(d)
+    # Diameters should be 0°, 5°, ..., 175° (non-decreasing)
+    for i, d in enumerate(seen_diameters):
+        assert 0 <= d < 180, f"Diameter {d} should be in [0, 180)"
         if i >= 1:
-            assert th >= seen_angles[i - 1] - 0.01, f"Angles should be non-decreasing: {seen_angles}"
+            assert d >= seen_diameters[i - 1] - 0.01, f"Diameters should be non-decreasing: {seen_diameters}"
 
 
 def test_small_mask_discarded() -> None:
@@ -114,7 +114,7 @@ def test_coverage_per_mask() -> None:
 
 
 def test_angle_set_0_to_175() -> None:
-    """Unique angles in output must be a subset of 0°, 5°, ..., 175° (reference convention)."""
+    """Unique angles in output must be a subset of 0°, 5°, ..., 175° (36 diameters)."""
     m = _square_mask(1, 0, 0, 6.0)
     result = generate_plan(
         masks=[m],
@@ -133,7 +133,7 @@ def test_angle_set_0_to_175() -> None:
 
 
 def test_alternating_t_per_line() -> None:
-    """Within each angle line: even theta_k → t ascending, odd theta_k → t descending (reference)."""
+    """Within each diameter: even theta_k → t_signed ascending, odd theta_k → t_signed descending."""
     m = _square_mask(1, 0, 0, 6.0)
     result = generate_plan(
         masks=[m],
@@ -143,19 +143,26 @@ def test_alternating_t_per_line() -> None:
     )
     if result.spots_count < 2:
         return
-    by_theta: dict[float, list[float]] = defaultdict(list)
+
+    def diameter_angle(th: float) -> float:
+        return th if th < 180.0 else th - 180.0
+
+    def t_signed(th: float, t: float) -> float:
+        return t if th < 180.0 else -t
+
+    by_diameter: dict[float, list[float]] = defaultdict(list)
     for s in result.spots:
-        th = round(s.theta_deg * 100) / 100
-        by_theta[th].append(s.t_mm)
-    for th, t_list in by_theta.items():
+        d = round(diameter_angle(s.theta_deg) * 100) / 100
+        by_diameter[d].append(t_signed(s.theta_deg, s.t_mm))
+    for d, t_list in by_diameter.items():
         if len(t_list) < 2:
             continue
-        theta_k = int(round(th)) // ANGLE_STEP_DEG
+        theta_k = int(round(d)) // ANGLE_STEP_DEG
         if theta_k % 2 == 0:
-            assert t_list == sorted(t_list), f"Even line {th}° should have t ascending: {t_list}"
+            assert t_list == sorted(t_list), f"Even diameter {d}° should have t_signed ascending: {t_list}"
         else:
             assert t_list == sorted(t_list, reverse=True), (
-                f"Odd line {th}° should have t descending: {t_list}"
+                f"Odd diameter {d}° should have t_signed descending: {t_list}"
             )
 
 
@@ -302,6 +309,28 @@ def test_simple_grid_spacing_mm_custom() -> None:
         for b in result_10.spots[i + 1 :]:
             dist = math.hypot(a.x_mm - b.x_mm, a.y_mm - b.y_mm)
             assert dist >= 1.0 - 0.02 or dist < 0.01
+
+
+def test_advanced_uniform_spacing_nearest_neighbor() -> None:
+    """Advanced mode: all nearest-neighbor distances >= min_dist; uniformity check."""
+    m = _square_mask(1, 0, 0, 10.0)  # 10 mm square centered at origin
+    result = generate_plan(
+        masks=[m],
+        target_coverage_pct=8.0,
+        coverage_per_mask=None,
+        image_width_mm=20.0,
+    )
+    if result.spots_count < 2:
+        return
+    min_dist = 0.3 * 1.05  # SPOT_DIAMETER_MM * 1.05
+    spots = [(s.x_mm, s.y_mm) for s in result.spots]
+    for i, (x, y) in enumerate(spots):
+        nn_dist = min(
+            math.hypot(x - ox, y - oy) for j, (ox, oy) in enumerate(spots) if j != i
+        )
+        assert nn_dist >= min_dist - 1e-6, (
+            f"Spot {i} at ({x},{y}) has nearest neighbor at {nn_dist:.4f} mm < min_dist {min_dist}"
+        )
 
 
 def test_simple_emission_order_boustrophedon() -> None:

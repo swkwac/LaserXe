@@ -243,3 +243,41 @@ export interface AuditLogListQueryCommand {
 export interface ExportQueryCommand {
   format: "json" | "png" | "jpg";
 }
+
+// --- Grid Generator DTOs (standalone, no image) ---
+
+export interface GridGeneratorRequestDto {
+  aperture_type: "simple" | "advanced";
+  spot_diameter_um: 300 | 150;
+  /** Required for advanced; for simple use when input mode is "coverage". */
+  target_coverage_pct?: number;
+  /** For simple aperture when input mode is "spacing". */
+  axis_distance_mm?: number;
+  /** For advanced aperture. */
+  angle_step_deg?: number;
+}
+
+export interface GridGeneratorSpotDto {
+  sequence_index: number;
+  x_mm: number;
+  y_mm: number;
+  theta_deg: number;
+  t_mm: number;
+  mask_id: null;
+  component_id: null;
+}
+
+export interface GridGeneratorParamsDto {
+  aperture_type: "simple" | "advanced";
+  spot_diameter_um: number;
+  target_coverage_pct: number;
+  axis_distance_mm: number | null;
+  angle_step_deg: number | null;
+}
+
+export interface GridGeneratorResponseDto {
+  spots: GridGeneratorSpotDto[];
+  spots_count: number;
+  achieved_coverage_pct: number;
+  params: GridGeneratorParamsDto;
+}

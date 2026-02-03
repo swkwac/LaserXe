@@ -1,7 +1,11 @@
 import * as React from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { buildAnimationTimelineFromSpots, spotColor } from "@/lib/animationUtils";
+import {
+  buildAnimationTimelineAdvanced,
+  buildAnimationTimelineFromSpots,
+  spotColor,
+} from "@/lib/animationUtils";
 import type { ImageDto } from "@/types";
 import { AnimationOverlay } from "./AnimationOverlay";
 import { useAnimationPlayback } from "./useAnimationPlayback";
@@ -94,11 +98,56 @@ function AnimationTab({
   }, [imageSize, spots, masks, scale]);
   const radiusPx = centerPx ? APERTURE_RADIUS_MM * scale : 0;
 
+  // Advanced: sort diameter-by-diameter (theta_k, t_sort) so head moves along each diameter, then rotates
+  const orderedSpots = React.useMemo(() => {
+    if (algorithmMode !== "advanced" || spots.length === 0) return spots;
+    const angleStep = selectedIteration?.params_snapshot?.angle_step_deg ?? 5;
+    return [...spots].sort((a, b) => {
+      const diamA = a.theta_deg < 180 ? a.theta_deg : a.theta_deg - 180;
+      const diamB = b.theta_deg < 180 ? b.theta_deg : b.theta_deg - 180;
+      const tSignedA = a.theta_deg < 180 ? a.t_mm : -a.t_mm;
+      const tSignedB = b.theta_deg < 180 ? b.t_mm : -b.t_mm;
+      const thetaKA = Math.floor(Math.round(diamA) / angleStep);
+      const thetaKB = Math.floor(Math.round(diamB) / angleStep);
+      if (thetaKA !== thetaKB) return thetaKA - thetaKB;
+      const tSortA = thetaKA % 2 === 0 ? tSignedA : -tSignedA;
+      const tSortB = thetaKB % 2 === 0 ? tSignedB : -tSignedB;
+      return tSortA - tSortB;
+    });
+  }, [spots, algorithmMode, selectedIteration?.params_snapshot?.angle_step_deg]);
+
   const totalFrames = Math.max(1, Math.round((ANIMATION_DURATION_MS / 1000) * ANIMATION_FPS));
   const timeline = React.useMemo(() => {
-    if (spots.length === 0) return [];
-    return buildAnimationTimelineFromSpots(spots, scale);
-  }, [spots, scale]);
+    if (orderedSpots.length === 0) return [];
+    if (algorithmMode === "advanced" && imageSize && image.width_mm > 0) {
+      const angleStep = selectedIteration?.params_snapshot?.angle_step_deg ?? 5;
+      const widthMm = image.width_mm;
+      const heightMm = widthMm * (imageSize.h / imageSize.w);
+      const centerXMm = widthMm / 2;
+      const centerYMm = heightMm / 2;
+      const spotsCenterMm = orderedSpots.map((s) => ({
+        x_mm: s.x_mm - centerXMm,
+        y_mm: centerYMm - s.y_mm,
+        theta_deg: s.theta_deg,
+        t_mm: s.t_mm,
+      }));
+      return buildAnimationTimelineAdvanced(
+        spotsCenterMm,
+        scale,
+        angleStep,
+        centerXMm,
+        centerYMm
+      );
+    }
+    return buildAnimationTimelineFromSpots(orderedSpots, scale);
+  }, [
+    orderedSpots,
+    scale,
+    algorithmMode,
+    imageSize,
+    image.width_mm,
+    selectedIteration?.params_snapshot?.angle_step_deg,
+  ]);
   const timelineIdx =
     timeline.length <= 1
       ? 0
@@ -226,7 +275,7 @@ function AnimationTab({
                 imageSize={imageSize}
                 scale={scale}
                 masks={masks}
-                spots={spots}
+                spots={orderedSpots}
                 frame={frame}
                 showMovementAxes={showDiameterLines}
                 algorithmMode={algorithmMode}

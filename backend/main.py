@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
 from app.api.audit_log import router as audit_log_router
+from app.api.grid_generator import router as grid_generator_router
 from app.api.images import router as images_router
 from app.api.iteration_by_id import router as iteration_by_id_router
 from app.api.iterations import router as iterations_router
@@ -45,6 +46,7 @@ app.include_router(masks_router, prefix="/api/images", tags=["masks"])
 app.include_router(iterations_router, prefix="/api/images", tags=["iterations"])
 app.include_router(iteration_by_id_router, prefix="/api/iterations", tags=["iterations"])
 app.include_router(audit_log_router, prefix="/api", tags=["audit-log"])
+app.include_router(grid_generator_router, prefix="/api/grid-generator", tags=["grid-generator"])
 
 
 @app.get("/health")

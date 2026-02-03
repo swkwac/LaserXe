@@ -23,5 +23,9 @@ export default defineConfig({
   },
   expect: { timeout: 10000 },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: undefined,
+  webServer: {
+    command: "npm run preview",
+    url: "http://localhost:3000",
+    reuseExistingServer: !!process.env.CI,
+  },
 });

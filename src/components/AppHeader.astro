@@ -11,7 +11,26 @@ import LogoutButton from "./auth/LogoutButton";
   role="banner"
 >
   <div class="flex w-full items-center justify-between">
-    <span class="text-lg font-semibold tracking-tight text-white">LaserXe</span>
+    <nav class="flex items-center gap-4" aria-label="Główne">
+      <a
+        href="/images"
+        class="text-lg font-semibold tracking-tight text-white hover:underline"
+      >
+        LaserXe
+      </a>
+      <a
+        href="/images"
+        class="text-white/90 hover:text-white hover:underline"
+      >
+        Obrazy
+      </a>
+      <a
+        href="/grid-generator"
+        class="text-white/90 hover:text-white hover:underline"
+      >
+        Generator siatki
+      </a>
+    </nav>
     <LogoutButton client:load className="text-white hover:bg-white/20 hover:text-white" />
   </div>
 </header>

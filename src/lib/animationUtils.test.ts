@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildAnimationTimelineFromSpots, spotColor, spotPxFromTopLeftMm } from "./animationUtils";
+import {
+  buildAnimationTimelineAdvanced,
+  buildAnimationTimelineFromSpots,
+  spotColor,
+  spotPxFromTopLeftMm,
+} from "./animationUtils";
 import type { SpotDto } from "@/types";
 
 describe("animationUtils", () => {
@@ -100,6 +105,27 @@ describe("animationUtils", () => {
       const spots = [spot(1, 10, 20)];
       const timeline = buildAnimationTimelineFromSpots(spots, 2);
       expect(timeline[0]?.headPx).toEqual({ x: 20, y: 40 });
+    });
+  });
+
+  describe("buildAnimationTimelineAdvanced", () => {
+    it("returns empty for empty spots", () => {
+      expect(buildAnimationTimelineAdvanced([], 1, 5, 12.5, 12.5)).toEqual([]);
+    });
+
+    it("sorts diameter-by-diameter and produces frames", () => {
+      const spots = [
+        { x_mm: 5, y_mm: 0, theta_deg: 0, t_mm: 5 },
+        { x_mm: 0, y_mm: 5, theta_deg: 90, t_mm: 5 },
+        { x_mm: 10, y_mm: 0, theta_deg: 0, t_mm: 10 },
+      ];
+      const timeline = buildAnimationTimelineAdvanced(spots, 1, 5, 12.5, 12.5);
+      expect(timeline.length).toBeGreaterThan(4);
+      expect(timeline[0]?.firedIndices).toEqual([0]);
+      const lastFrame = timeline[timeline.length - 1];
+      expect(lastFrame?.firedIndices).toEqual([0, 1, 2]);
+      expect(lastFrame?.headPx.x).toBeCloseTo(12.5, 0);
+      expect(lastFrame?.headPx.y).toBeCloseTo(7.5, 0);
     });
   });
 });

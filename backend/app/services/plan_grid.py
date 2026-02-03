@@ -10,10 +10,10 @@ Refs: .ai/instrukcje generowania siatki.md, .ai/succesful point and animation al
 - Center: centroid of included masks; fallback = (0, 0) image center in mm.
   Vertices and spots are in center mm (+y up); API converts to/from top-left mm at boundaries.
 - Axis: P(t) = center + t * dir; t in [-R, +R], R = 12.5 mm.
-- Emission order: angles 0° to 180° (0, 5, …, 175); on each diameter t alternates (even line: t ascending, odd line: t descending).
-- Points: candidate-based selection (reference: build_candidate_lines + select_points + tune_min_dist).
-  Dense sampling along each diameter (CANDIDATE_STEP_MM 0.2 mm), greedy min_dist selection per line,
-  binary search on min_dist per mask to hit target. Per-mask processing with avoid_xy.
+- Emission order: 36 diameters 0° to 175° (step 5°); each diameter is full line through center (θ and θ+180° joined); t alternates (even: asc, odd: desc).
+- Points: diameter-line approach (reference). Uniform spacing along each diameter t ∈ [-R, +R].
+  Candidates at 0.2 mm step; greedy select + binary search on min_dist per mask to hit target.
+  Per-mask processing with avoid_xy.
 - Emission order: (theta_k, t_sort) with t_sort = ± t_mm by line parity.
 - Min mask: 0.5% aperture; discard masks < 1% of total mask surface.
 """
@@ -54,6 +54,16 @@ def _angles_0_to_180(step_deg: int) -> list[float]:
     out: list[float] = []
     a = 0.0
     while a < 180.0 - 1e-9:
+        out.append(a)
+        a += float(step_deg)
+    return out
+
+
+def _angles_full_circle(step_deg: int) -> list[float]:
+    """Return angles from 0° to 360° (exclusive): 0°, step°, ..., 355° for full circle coverage."""
+    out: list[float] = []
+    a = 0.0
+    while a < 360.0 - 1e-9:
         out.append(a)
         a += float(step_deg)
     return out
@@ -247,6 +257,53 @@ def _build_candidate_lines_for_mask(
     return lines
 
 
+def _build_candidates_polar_uniform(
+    m: MaskPolygon,
+    cx: float,
+    cy: float,
+    angles_ordered: list[float],
+    spacing_mm: float,
+    r_max: float,
+) -> list[tuple[float, float, float, float, int]]:
+    """
+    Build candidates on a polar grid for uniform 2D spacing.
+
+    - Rings at r = 0, spacing_mm, 2*spacing_mm, ... up to r_max.
+    - On each ring: arc length between points ≈ spacing_mm, so n = floor(2πr/spacing_mm).
+    - Angles aligned with machine diameters (angles_ordered); at small r we use fewer
+      diameters to avoid oversampling (angular distance r*Δθ would be < spacing_mm).
+    - Returns (x_mm, y_mm, theta_deg, t_mm, mask_id) for emission-order compatibility.
+    """
+    n_angles = len(angles_ordered)
+    if n_angles == 0:
+        return []
+
+    candidates: list[tuple[float, float, float, float, int]] = []
+    r = 0.0
+    while r <= r_max + 1e-9:
+        if r < 1e-6:
+            # Center: single point
+            if _point_in_polygon(cx, cy, m.vertices):
+                candidates.append((cx, cy, angles_ordered[0], 0.0, m.mask_id))
+        else:
+            # Ring at radius r: n points with arc length ≈ spacing_mm
+            n_on_ring = max(1, min(n_angles, int(2 * math.pi * r / spacing_mm)))
+            # Pick diameter indices evenly: 0, step, 2*step, ... where step = n_angles/n_on_ring
+            step = n_angles / n_on_ring if n_on_ring > 0 else 1
+            for i in range(n_on_ring):
+                idx = min(int(round(i * step)), n_angles - 1)
+                theta_deg = angles_ordered[idx]
+                rad = math.radians(theta_deg)
+                x = cx + r * math.cos(rad)
+                y = cy + r * math.sin(rad)
+                if (x - cx) ** 2 + (y - cy) ** 2 <= r_max**2 + 1e-9 and _point_in_polygon(
+                    x, y, m.vertices
+                ):
+                    candidates.append((x, y, theta_deg, r, m.mask_id))
+        r += spacing_mm
+    return candidates
+
+
 def _select_points_from_lines(
     lines: list[tuple[int, float, list[tuple[float, float, float]]]],
     min_dist_mm: float,
@@ -274,21 +331,88 @@ def _select_points_from_lines(
     return selected
 
 
+def _select_points_from_polar_candidates(
+    candidates: list[tuple[float, float, float, float, int]],
+    min_dist_mm: float,
+    avoid_xy: list[tuple[float, float]],
+) -> list[tuple[float, float, float, float, int]]:
+    """
+    Greedy selection from polar candidates for uniform spacing.
+    Process in (|t|, θ) order (center outward) so selection is spatially balanced.
+    Returns (x, y, theta_deg, t_mm, mask_id).
+    """
+    if not candidates:
+        return []
+    min2 = min_dist_mm * min_dist_mm
+    # Sort by |t| (radius) asc, then theta asc for center-outward processing
+    sorted_cand = sorted(candidates, key=lambda c: (abs(c[3]), c[2]))
+    selected: list[tuple[float, float, float, float, int]] = []
+    for x, y, th_deg, t_mm, mask_id in sorted_cand:
+        if any((x - ax) ** 2 + (y - ay) ** 2 < min2 for ax, ay in avoid_xy):
+            continue
+        if any((x - s[0]) ** 2 + (y - s[1]) ** 2 < min2 for s in selected):
+            continue
+        selected.append((x, y, th_deg, t_mm, mask_id))
+    return selected
+
+
+def _tune_spacing_polar(
+    m: MaskPolygon,
+    cx: float,
+    cy: float,
+    angles_ordered: list[float],
+    angle_step_deg: int,
+    target_n: int,
+    avoid_xy: list[tuple[float, float]],
+    r_max: float,
+    min_dist_mm: float,
+    max_iter: int = 18,
+) -> list[tuple[float, float, float, float, int]]:
+    """
+    Binary search on spacing_mm to hit target_n spots using polar uniform grid
+    (chord-based diameter subsampling, same as full-aperture / grid generator).
+    """
+    lo, hi = min_dist_mm, 5.0
+    best: list[tuple[float, float, float, float, int]] = []
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        mid = max(mid, min_dist_mm)
+        cand = _build_candidates_polar_uniform_constrained(
+            cx, cy,
+            angles_ordered=angles_ordered,
+            spacing_mm=mid,
+            r_max=r_max,
+            angle_step_deg=angle_step_deg,
+            mask_id=m.mask_id,
+            mask_vertices=m.vertices,
+        )
+        sel = _select_points_from_polar_candidates(cand, min_dist_mm, avoid_xy)
+        if not best or abs(len(sel) - target_n) < abs(len(best) - target_n):
+            best = sel
+        if len(sel) > target_n:
+            lo = mid
+        else:
+            hi = mid
+    return best
+
+
 def _tune_min_dist(
     lines: list[tuple[int, float, list[tuple[float, float, float]]]],
     target_n: int,
     avoid_xy: list[tuple[float, float]],
     mask_id: int,
     max_iter: int = 18,
+    min_dist_mm: float | None = None,
 ) -> list[tuple[float, float, float, float, int]]:
     """
     Binary search on min_dist to hit target_n spots (reference: tune_min_dist).
     """
+    min_d = min_dist_mm if min_dist_mm is not None else MIN_DIST_MM
     lo, hi = SPOT_DIAMETER_MM, 5.0
     best: list[tuple[float, float, float, float, int]] = []
     for _ in range(max_iter):
         mid = (lo + hi) / 2.0
-        mid = max(mid, MIN_DIST_MM)
+        mid = max(mid, min_d)
         sel = _select_points_from_lines(lines, mid, avoid_xy, mask_id)
         if not best or abs(len(sel) - target_n) < abs(len(best) - target_n):
             best = sel
@@ -343,6 +467,83 @@ def _generate_all_spots_with_spacing(
     return all_spots
 
 
+def _build_candidates_polar_uniform_constrained(
+    cx: float,
+    cy: float,
+    *,
+    angles_ordered: list[float],
+    spacing_mm: float,
+    r_max: float,
+    angle_step_deg: int,
+    mask_id: int,
+    mask_vertices: list[tuple[float, float]] | None = None,
+) -> list[tuple[float, float, float, float, int | None]]:
+    """
+    Build candidates with improved 2D uniformity (chord-based diameter subsampling).
+
+    Used for both full aperture and lesion masks. When mask_vertices is provided,
+    only points inside the mask polygon are included.
+
+    Key idea (constraint-aware):
+    - Points must lie on machine diameters (θ in [0,180) at fixed Δθ).
+    - With fixed Δθ, tangential spacing shrinks near the center (~ r*Δθ).
+      We skip some diameters on small radii so chord distance >= spacing_mm.
+    - Rings at r = 0, spacing, 2*spacing, ..., r_max.
+    - Emit both sides of each diameter via signed t (t=+r and t=-r).
+    """
+    if spacing_mm <= 0:
+        spacing_mm = MIN_DIST_MM
+    if not angles_ordered:
+        return []
+
+    n_angles = len(angles_ordered)
+    dtheta_rad = math.radians(float(angle_step_deg))
+    candidates: list[tuple[float, float, float, float, int | None]] = []
+
+    def inside_mask(x: float, y: float) -> bool:
+        if mask_vertices is None:
+            return True
+        return _point_in_polygon(x, y, mask_vertices)
+
+    ring_idx = 0
+    r = 0.0
+    while r <= r_max + 1e-9:
+        if r < 1e-8:
+            if inside_mask(cx, cy):
+                candidates.append((cx, cy, angles_ordered[0], 0.0, mask_id))
+            ring_idx += 1
+            r += spacing_mm
+            continue
+
+        ratio = spacing_mm / (2.0 * r)
+        if ratio >= 1.0:
+            skip = n_angles
+        else:
+            dphi = 2.0 * math.asin(ratio)
+            skip = max(1, int(math.ceil(dphi / max(dtheta_rad, 1e-12))))
+            skip = min(skip, n_angles)
+
+        offset = ring_idx % skip
+
+        for idx in range(offset, n_angles, skip):
+            theta_deg = angles_ordered[idx]
+            rad = math.radians(theta_deg)
+            cos_t = math.cos(rad)
+            sin_t = math.sin(rad)
+
+            for sign in (1.0, -1.0):
+                t = sign * r
+                x = cx + t * cos_t
+                y = cy + t * sin_t
+                if (x - cx) ** 2 + (y - cy) ** 2 <= r_max * r_max + 1e-9 and inside_mask(x, y):
+                    candidates.append((x, y, theta_deg, t, mask_id))
+
+        ring_idx += 1
+        r += spacing_mm
+
+    return candidates
+
+
 def _binary_search_global_spacing(
     masks: list[MaskPolygon],
     cx: float,
@@ -352,16 +553,18 @@ def _binary_search_global_spacing(
     r_min: float,
     r_max: float,
     angle_step: int,
+    min_dist_mm: float = MIN_DIST_MM,
     max_iter: int = 25,
 ) -> float:
     """
     One spacing for the whole plan so treatment points are as uniform as possible.
     Binary search: spacing such that (generate all with spacing, sort, filter) ≈ total_target.
+    Produces regular grid: concentric rings + radial lines (reference image pattern).
     """
     if total_target <= 0:
-        return 10.0 * SPOT_DIAMETER_MM
-    low = SPOT_DIAMETER_MM
-    high = 10.0 * SPOT_DIAMETER_MM
+        return 10.0 * min_dist_mm
+    low = min_dist_mm
+    high = 10.0 * min_dist_mm
     tolerance = max(1, int(0.02 * total_target))
     best_spacing = (low + high) / 2.0
 
@@ -373,12 +576,12 @@ def _binary_search_global_spacing(
 
     for _ in range(max_iter):
         mid = (low + high) / 2.0
-        mid = max(mid, MIN_DIST_MM)
+        mid = max(mid, min_dist_mm)
         spots = _generate_all_spots_with_spacing(
             masks, cx, cy, mid, angles_ordered, r_min, r_max
         )
         spots.sort(key=emission_order_key)
-        filtered = _filter_overlaps_in_emission_order(spots, MIN_DIST_MM)
+        filtered = _filter_overlaps_in_emission_order(spots, min_dist_mm)
         n = len(filtered)
         if abs(n - total_target) <= tolerance:
             return mid
@@ -521,6 +724,9 @@ def generate_plan(
     target_coverage_pct: float,
     coverage_per_mask: dict[str, float] | None,
     image_width_mm: float,
+    angle_step_deg: int | None = None,
+    spot_diameter_mm: float | None = None,
+    use_unison_grid: bool = False,
 ) -> PlanResult:
     """
     Generate spot grid and emission sequence.
@@ -530,7 +736,13 @@ def generate_plan(
     - Diameters 0° to 180° (0, 5, ..., 175). Sequence: (theta_k, t_sort) with alternating t per line (reference).
     - One global spacing for the whole plan so treatment points are as uniform as possible (unison grid).
     - Total target count = sum of per-mask targets (from coverage_per_mask or target_coverage_pct).
+    - angle_step_deg, spot_diameter_mm: optional overrides for grid generator (standalone aperture).
     """
+    angle_step = angle_step_deg if angle_step_deg is not None else ANGLE_STEP_DEG
+    spot_d = spot_diameter_mm if spot_diameter_mm is not None else SPOT_DIAMETER_MM
+    spot_area_use = math.pi * (spot_d / 2) ** 2
+    min_dist_use = spot_d * 1.05
+
     included: list[MaskPolygon] = []
     for m in masks:
         area = _polygon_area(m.vertices)
@@ -559,34 +771,90 @@ def generate_plan(
         fallback_used = True
 
     r_min, r_max = -APERTURE_RADIUS_MM, APERTURE_RADIUS_MM
-    angle_step = ANGLE_STEP_DEG
     angles_ordered = _angles_0_to_180(angle_step)
 
-    # Per-mask processing with candidate-based selection (reference: tune_min_dist per component)
-    # Each mask gets its target count; avoid_xy accumulates so spots don't overlap across masks
-    avoid_xy: list[tuple[float, float]] = []
-    all_spots: list[tuple[float, float, float, float, int]] = []
-    for m in included:
-        area_mm2 = _polygon_area(m.vertices)
-        pct = target_coverage_pct
-        if coverage_per_mask:
-            key = str(m.mask_id) if str(m.mask_id) in coverage_per_mask else (m.mask_label or str(m.mask_id))
-            pct = coverage_per_mask.get(key, target_coverage_pct)
-        pct = max(3.0, min(20.0, pct))
-        n_target = max(1, int(round((pct / 100.0) * area_mm2 / SPOT_AREA_MM2)))
-        lines = _build_candidate_lines_for_mask(
-            m, cx, cy, angles_ordered, r_min, r_max, CANDIDATE_STEP_MM
+    # Unison grid: one global spacing for regular concentric rings + radial lines (reference image).
+    # Used for full-aperture (e.g. grid generator). Produces uniform t = -R, -R+s, ..., +R per diameter.
+    if use_unison_grid:
+        # Full-aperture target count from aperture area (not polygon area approximation).
+        total_target = max(
+            1, int(round((target_coverage_pct / 100.0) * APERTURE_AREA_MM2 / spot_area_use))
         )
-        sel = _tune_min_dist(lines, n_target, avoid_xy, m.mask_id)
-        for (x, y, th, t, mask_id) in sel:
-            all_spots.append((x, y, th, t, mask_id))
-            avoid_xy.append((x, y))
 
-    # Emission order: (theta_k, t_sort) with theta_k = angle index 0..n-1, t_sort = ± t_mm by line parity (reference)
+        def _unison_emission_key(s: tuple) -> tuple:
+            theta_deg = s[2]
+            # theta_deg is already in [0,180) for this mode
+            theta_k = int(round(theta_deg)) // angle_step
+            t_sort = s[3] if theta_k % 2 == 0 else -s[3]
+            return (theta_k, t_sort)
+
+        # Binary search on spacing to hit total_target, using polar rings + diameter subsampling
+        low = min_dist_use
+        high = 10.0 * min_dist_use
+        tolerance = max(1, int(0.02 * total_target))
+        best: list[tuple[float, float, float, float, int | None]] = []
+
+        for _ in range(22):
+            mid = (low + high) / 2.0
+            mid = max(mid, min_dist_use)
+            cand = _build_candidates_polar_uniform_constrained(
+                cx,
+                cy,
+                angles_ordered=angles_ordered,
+                spacing_mm=mid,
+                r_max=APERTURE_RADIUS_MM,
+                angle_step_deg=angle_step,
+                mask_id=included[0].mask_id if included else 0,
+                mask_vertices=None,
+            )
+            cand.sort(key=_unison_emission_key)
+            filtered = _filter_overlaps_in_emission_order(cand, min_dist_use)
+
+            if not best or abs(len(filtered) - total_target) < abs(len(best) - total_target):
+                best = filtered
+
+            if abs(len(filtered) - total_target) <= tolerance:
+                best = filtered
+                break
+            if len(filtered) > total_target:
+                low = mid
+            else:
+                high = mid
+
+        all_spots = [
+            (s[0], s[1], s[2], s[3], s[4] if s[4] is not None else 0) for s in best
+        ]
+    else:
+        # Polar uniform approach (same as grid generator): chord-based diameter subsampling,
+        # per-mask binary search on spacing, greedy selection with avoid_xy across masks.
+        avoid_xy: list[tuple[float, float]] = []
+        all_spots = []
+        for m in included:
+            area_mm2 = _polygon_area(m.vertices)
+            pct = target_coverage_pct
+            if coverage_per_mask:
+                key = str(m.mask_id) if str(m.mask_id) in coverage_per_mask else (m.mask_label or str(m.mask_id))
+                pct = coverage_per_mask.get(key, target_coverage_pct)
+            pct = max(3.0, min(20.0, pct))
+            n_target = max(1, int(round((pct / 100.0) * area_mm2 / spot_area_use)))
+            sel = _tune_spacing_polar(
+                m, cx, cy, angles_ordered, angle_step,
+                n_target, avoid_xy, APERTURE_RADIUS_MM, min_dist_use,
+            )
+            for (x, y, th, t, mask_id) in sel:
+                all_spots.append((x, y, th, t, mask_id))
+                avoid_xy.append((x, y))
+
+    # Emission order: diameter-by-diameter 0° to 175° (36 diameters). Each diameter is a full line through center.
+    # Points at (r, θ) and (r, θ+180°) are on the same diameter; normalize to diameter_angle in [0, 180).
+    # t_signed: +r for θ in [0,180), -r for θ in [180,360) so both sides of center are on one diameter.
     def emission_order_key(s: tuple) -> tuple:
         theta_deg = s[2]
-        theta_k = int(round(theta_deg)) // angle_step  # 0°->0, 5°->1, ..., 175°->35
-        t_sort = s[3] if theta_k % 2 == 0 else -s[3]   # even line: t asc; odd line: t desc
+        t_mm = s[3]
+        diameter_angle = theta_deg if theta_deg < 180.0 else theta_deg - 180.0
+        t_signed = t_mm if theta_deg < 180.0 else -t_mm
+        theta_k = int(round(diameter_angle)) // angle_step  # 0°->0, 5°->1, ..., 175°->35
+        t_sort = t_signed if theta_k % 2 == 0 else -t_signed
         return (theta_k, t_sort)
     all_spots.sort(key=emission_order_key)
     sequence: list[SpotRecord] = []
@@ -595,7 +863,7 @@ def generate_plan(
 
     total_mask_area = sum(_polygon_area(m.vertices) for m in included)
     n_spots = len(sequence)
-    achieved = (100.0 * n_spots * SPOT_AREA_MM2 / total_mask_area) if total_mask_area > 0 else None
+    achieved = (100.0 * n_spots * spot_area_use / total_mask_area) if total_mask_area > 0 else None
     outside = 0
     for s in sequence:
         in_any = False
@@ -609,7 +877,7 @@ def generate_plan(
     for i, a in enumerate(sequence):
         for b in sequence[i + 1 :]:
             dist = math.hypot(a.x_mm - b.x_mm, a.y_mm - b.y_mm)
-            if dist < MIN_DIST_MM - 1e-6:
+            if dist < min_dist_use - 1e-6:
                 overlap += 1
     plan_valid = 1 if n_spots > 0 and (outside / n_spots <= 0.05 if n_spots else True) and overlap == 0 else 0
 
