@@ -22,7 +22,6 @@ const APERTURE_RADIUS_MM = 12.5;
 interface AnimationTabFormValues {
   iterationId: number | "";
   showDiameterLines: boolean;
-  showAxisLine: boolean;
 }
 
 function AnimationTab({
@@ -54,13 +53,13 @@ function AnimationTab({
     defaultValues: {
       iterationId: "",
       showDiameterLines: false,
-      showAxisLine: false,
     },
   });
 
   const iterationId = watch("iterationId");
   const showDiameterLines = watch("showDiameterLines");
-  const showAxisLine = watch("showAxisLine");
+  const selectedIteration = iterations.find((i) => i.id === selectedIterationId);
+  const algorithmMode = selectedIteration?.params_snapshot?.algorithm_mode;
 
   // Sync form iterationId when parent or iterations list change
   React.useEffect(() => {
@@ -74,7 +73,25 @@ function AnimationTab({
   }, [selectedIterationId]);
 
   const scale = imageSize && image.width_mm > 0 ? imageSize.w / image.width_mm : 1;
-  const centerPx = imageSize && imageSize.w > 0 && imageSize.h > 0 ? { x: imageSize.w / 2, y: imageSize.h / 2 } : null;
+  // Center of treatment grid: mask centroid (matches backend) so diameter lines pass through spots
+  const centerPx = React.useMemo(() => {
+    if (!imageSize || imageSize.w <= 0 || imageSize.h <= 0) return null;
+    const fallback = { x: imageSize.w / 2, y: imageSize.h / 2 };
+    if (masks.length > 0) {
+      const allVerts = masks.flatMap((m) => m.vertices);
+      if (allVerts.length > 0) {
+        const cxMm = allVerts.reduce((s, v) => s + v.x, 0) / allVerts.length;
+        const cyMm = allVerts.reduce((s, v) => s + v.y, 0) / allVerts.length;
+        return { x: cxMm * scale, y: cyMm * scale };
+      }
+    }
+    if (spots.length > 0) {
+      const cxMm = spots.reduce((s, p) => s + p.x_mm, 0) / spots.length;
+      const cyMm = spots.reduce((s, p) => s + p.y_mm, 0) / spots.length;
+      return { x: cxMm * scale, y: cyMm * scale };
+    }
+    return fallback;
+  }, [imageSize, spots, masks, scale]);
   const radiusPx = centerPx ? APERTURE_RADIUS_MM * scale : 0;
 
   const totalFrames = Math.max(1, Math.round((ANIMATION_DURATION_MS / 1000) * ANIMATION_FPS));
@@ -177,24 +194,7 @@ function AnimationTab({
                 ref={field.ref}
                 className="rounded border border-input"
               />
-              <span className="text-muted-foreground">Linie średnic co 5°</span>
-            </label>
-          )}
-        />
-        <Controller
-          name="showAxisLine"
-          control={control}
-          render={({ field }) => (
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
-                onBlur={field.onBlur}
-                ref={field.ref}
-                className="rounded border border-input"
-              />
-              <span className="text-muted-foreground">Oś głowicy (linia)</span>
+              <span className="text-muted-foreground">Osie ruchu (przez punkty)</span>
             </label>
           )}
         />
@@ -202,6 +202,11 @@ function AnimationTab({
 
       {loadingSpots && selectedIterationId && <p className="text-sm text-muted-foreground">Ładowanie punktów…</p>}
 
+      {image.width_mm <= 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć animację.
+        </p>
+      ) : (
       <div
         ref={containerRef}
         className="relative inline-block max-w-full border border-border rounded-md overflow-hidden bg-muted/30"
@@ -223,8 +228,8 @@ function AnimationTab({
                 masks={masks}
                 spots={spots}
                 frame={frame}
-                showDiameterLines={showDiameterLines}
-                showAxisLine={showAxisLine}
+                showMovementAxes={showDiameterLines}
+                algorithmMode={algorithmMode}
                 centerPx={centerPx}
                 radiusPx={radiusPx}
               />
@@ -247,6 +252,7 @@ function AnimationTab({
           </div>
         )}
       </div>
+      )}
 
       {spots.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 text-sm">

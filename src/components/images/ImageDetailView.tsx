@@ -115,6 +115,25 @@ function ImageDetailView({
     };
   }, [imageId]);
 
+  // Refetch image when switching to Plan or Animation so we have the latest width_mm (scale from tool).
+  React.useEffect(() => {
+    if (selectedTab !== "plan" && selectedTab !== "animation") return;
+    if (!image) return;
+    let cancelled = false;
+    apiFetch(`/api/images/${imageId}`)
+      .then(async (res) => {
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as ImageDto;
+        setImage(data);
+      })
+      .catch(() => {
+        /* ignore; keep current image */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imageId, selectedTab]);
+
   const setTab = React.useCallback((tab: TabId) => {
     setSelectedTab(tab);
     const url = new URL(window.location.href);

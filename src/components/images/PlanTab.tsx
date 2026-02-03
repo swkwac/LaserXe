@@ -57,6 +57,8 @@ function PlanTab({
   const [lastGenerated, setLastGenerated] = React.useState<IterationDto | null>(null);
   const [patchedIteration, setPatchedIteration] = React.useState<IterationDto | null>(null);
   const [previewImageSize, setPreviewImageSize] = React.useState<{ w: number; h: number } | null>(null);
+  const [showSimpleAxes, setShowSimpleAxes] = React.useState(true);
+  const [showRotationalAxes, setShowRotationalAxes] = React.useState(true);
 
   const { iteration: iterationFromHook } = useIteration(selectedIterationIdFromParent);
   const {
@@ -227,9 +229,40 @@ function PlanTab({
               Eksport JPG
             </Button>
           </div>
+          {previewImageUrl && image.width_mm <= 0 && (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć podgląd planu.
+            </p>
+          )}
           {previewImageUrl && image.width_mm > 0 && (
             <div className="mt-4">
               <h3 className="text-sm font-medium mb-2">Podgląd planu (overlay punktów)</h3>
+              {selectedIteration?.params_snapshot?.algorithm_mode && (
+                <div className="mb-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  {selectedIteration.params_snapshot.algorithm_mode === "simple" && (
+                    <label className="inline-flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={showSimpleAxes}
+                        onChange={(e) => setShowSimpleAxes(e.target.checked)}
+                        className="rounded border border-input"
+                      />
+                      <span>Linie ruchu XY</span>
+                    </label>
+                  )}
+                  {selectedIteration.params_snapshot.algorithm_mode === "advanced" && (
+                    <label className="inline-flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={showRotationalAxes}
+                        onChange={(e) => setShowRotationalAxes(e.target.checked)}
+                        className="rounded border border-input"
+                      />
+                      <span>Oś obrotu (linie średnic)</span>
+                    </label>
+                  )}
+                </div>
+              )}
               <div className="relative inline-block max-w-full border border-border rounded-md overflow-hidden bg-muted/30">
                 <img
                   src={previewImageUrl}
@@ -251,10 +284,33 @@ function PlanTab({
                   >
                     {(() => {
                       const scale = previewImageSize.w / image.width_mm;
-                      const centerPx = {
-                        x: previewImageSize.w / 2,
-                        y: previewImageSize.h / 2,
-                      };
+                      const algorithmMode = selectedIteration?.params_snapshot?.algorithm_mode;
+                      // Center of treatment grid: mask centroid (matches backend) so diameter lines pass through spots
+                      let centerPx: { x: number; y: number };
+                      if (previewMasks.length > 0) {
+                        const allVerts = previewMasks.flatMap((m) => m.vertices);
+                        if (allVerts.length > 0) {
+                          const cxMm = allVerts.reduce((s, v) => s + v.x, 0) / allVerts.length;
+                          const cyMm = allVerts.reduce((s, v) => s + v.y, 0) / allVerts.length;
+                          centerPx = { x: cxMm * scale, y: cyMm * scale };
+                        } else {
+                          centerPx = {
+                            x: previewImageSize.w / 2,
+                            y: previewImageSize.h / 2,
+                          };
+                        }
+                      } else if (previewSpots.length > 0) {
+                        const cxMm =
+                          previewSpots.reduce((s, p) => s + p.x_mm, 0) / previewSpots.length;
+                        const cyMm =
+                          previewSpots.reduce((s, p) => s + p.y_mm, 0) / previewSpots.length;
+                        centerPx = { x: cxMm * scale, y: cyMm * scale };
+                      } else {
+                        centerPx = {
+                          x: previewImageSize.w / 2,
+                          y: previewImageSize.h / 2,
+                        };
+                      }
                       const apertureRadiusMm = 12.5;
                       const radiusPx = apertureRadiusMm * scale;
                       const MASK_COLORS = ["rgba(255,255,255,0.35)", "rgba(0,200,100,0.35)", "rgba(80,120,255,0.35)"];
@@ -269,23 +325,68 @@ function PlanTab({
                               strokeWidth={1}
                             />
                           ))}
-                          {/* Diameters at 0°, 5°, ..., 175° (same as backend grid) */}
-                          {Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
-                            const rad = (deg * Math.PI) / 180;
-                            const cos = Math.cos(rad);
-                            const sin = Math.sin(rad);
-                            return (
-                              <line
-                                key={deg}
-                                x1={centerPx.x - radiusPx * cos}
-                                y1={centerPx.y + radiusPx * sin}
-                                x2={centerPx.x + radiusPx * cos}
-                                y2={centerPx.y - radiusPx * sin}
-                                stroke="rgba(100,150,255,0.35)"
-                                strokeWidth={1}
-                              />
-                            );
-                          })}
+                          {/* Simple mode: XY grid lines through spot centers */}
+                          {algorithmMode === "simple" &&
+                            showSimpleAxes &&
+                            previewSpots.length > 0 &&
+                            centerPx &&
+                            radiusPx > 0 && (() => {
+                              const uniqueX = Array.from(new Set(previewSpots.map((s) => s.x_mm))).sort(
+                                (a, b) => a - b
+                              );
+                              const uniqueY = Array.from(new Set(previewSpots.map((s) => s.y_mm))).sort(
+                                (a, b) => a - b
+                              );
+                              const lines: React.ReactElement[] = [];
+                              uniqueX.forEach((xMm, i) => {
+                                const x = xMm * scale;
+                                lines.push(
+                                  <line
+                                    key={`v-${i}`}
+                                    x1={x}
+                                    y1={centerPx.y - radiusPx}
+                                    x2={x}
+                                    y2={centerPx.y + radiusPx}
+                                    stroke="rgba(120,120,255,0.35)"
+                                    strokeWidth={0.8}
+                                  />
+                                );
+                              });
+                              uniqueY.forEach((yMm, i) => {
+                                const y = yMm * scale;
+                                lines.push(
+                                  <line
+                                    key={`h-${i}`}
+                                    x1={centerPx.x - radiusPx}
+                                    y1={y}
+                                    x2={centerPx.x + radiusPx}
+                                    y2={y}
+                                    stroke="rgba(120,120,255,0.35)"
+                                    strokeWidth={0.8}
+                                  />
+                                );
+                              });
+                              return lines;
+                            })()}
+                          {/* Advanced mode: all 5° diameter lines (0°, 5°, ..., 175°) through mask centroid */}
+                          {algorithmMode === "advanced" &&
+                            showRotationalAxes &&
+                            Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
+                              const rad = (deg * Math.PI) / 180;
+                              const cos = Math.cos(rad);
+                              const sin = Math.sin(rad);
+                              return (
+                                <line
+                                  key={deg}
+                                  x1={centerPx.x - radiusPx * cos}
+                                  y1={centerPx.y + radiusPx * sin}
+                                  x2={centerPx.x + radiusPx * cos}
+                                  y2={centerPx.y - radiusPx * sin}
+                                  stroke="rgba(100,150,255,0.35)"
+                                  strokeWidth={1}
+                                />
+                              );
+                            })}
                           {/* Spots: position from top-left mm (x_mm, y_mm) so they align with mask */}
                           {previewSpots.map((spot) => {
                             const px = spotPxFromTopLeftMm(spot.x_mm, spot.y_mm, scale);

@@ -88,12 +88,11 @@ describe("AnimationTab", () => {
     expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
   });
 
-  it("renders both checkboxes for diameter lines and axis", async () => {
+  it("renders checkbox for movement axes", async () => {
     render(<AnimationTab imageId={1} image={mockImage} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Linie średnic co 5°/i)).toBeInTheDocument();
-      expect(screen.getByText(/Oś głowicy \(linia\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Osie ruchu \(przez punkty\)/i)).toBeInTheDocument();
     });
   });
 

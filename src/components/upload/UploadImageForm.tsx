@@ -30,7 +30,8 @@ export interface UploadImageFormProps {
 
 function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageFormProps) {
   const [file, setFile] = React.useState<File | null>(null);
-  const [widthMm, setWidthMm] = React.useState("");
+  // Initial width_mm is arbitrary; proper scale is set later via scale tool on Masks tab.
+  const [widthMm] = React.useState("10");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
@@ -75,17 +76,11 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
         return;
       }
 
-      const width = parseFloat(widthMm);
-      if (!Number.isFinite(width) || width <= 0) {
-        setErrorMessage("Podaj szerokość zmiany w mm (liczba większa od 0).");
-        return;
-      }
-
       setIsSubmitting(true);
       try {
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("width_mm", String(width));
+        formData.append("width_mm", widthMm);
 
         const res = await apiFetch("/api/images", {
           method: "POST",
@@ -155,24 +150,6 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
             <img src={previewUrl} alt="Podgląd" className="h-full w-full object-contain" />
           </div>
         )}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor={widthId}>Szerokość zmiany (mm)</Label>
-        <Input
-          id={widthId}
-          type="number"
-          min={0.1}
-          step={0.1}
-          value={widthMm}
-          onChange={(e) => {
-            setWidthMm(e.target.value);
-            setErrorMessage(null);
-          }}
-          disabled={isSubmitting}
-          placeholder="np. 20"
-          aria-invalid={!!errorMessage}
-        />
       </div>
 
       {errorMessage && (

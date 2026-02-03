@@ -17,6 +17,8 @@ export interface CanvasWorkspaceProps {
   onUpdateMask?: (maskId: number, vertices: MaskVertexDto[], maskLabel?: string | null) => void;
   /** Optional: called when saving fails (e.g. 400 mask &lt;3% aperture). */
   onError?: (message: string) => void;
+  /** Optional: called when user calibrates scale using the scale tool (new width_mm in mm). */
+  onScaleChange?: (newWidthMm: number) => void;
   /** Disable drawing/delete while saving. */
   disabled?: boolean;
   /** Tryb demo – wyświetl watermark DEMO na canvas. */
@@ -30,6 +32,25 @@ export interface CanvasWorkspaceProps {
 /** Convert mm to px using scale (px per mm). */
 function mmToPx(vertices: MaskVertexDto[], scale: number): { x: number; y: number }[] {
   return vertices.map((v) => ({ x: v.x * scale, y: v.y * scale }));
+}
+
+/** Polygon metrics from vertices in mm: xSize, ySize (bounding box), area (shoelace). */
+function polygonMetrics(vertices: MaskVertexDto[]): { xSizeMm: number; ySizeMm: number; areaMm2: number } {
+  if (vertices.length < 3) {
+    return { xSizeMm: 0, ySizeMm: 0, areaMm2: 0 };
+  }
+  const xs = vertices.map((v) => v.x);
+  const ys = vertices.map((v) => v.y);
+  const xSizeMm = Math.max(...xs) - Math.min(...xs);
+  const ySizeMm = Math.max(...ys) - Math.min(...ys);
+  let area = 0;
+  const n = vertices.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += vertices[i].x * vertices[j].y - vertices[j].x * vertices[i].y;
+  }
+  const areaMm2 = Math.abs(area) / 2;
+  return { xSizeMm, ySizeMm, areaMm2 };
 }
 
 /** Convert px to mm. */
@@ -49,6 +70,7 @@ function CanvasWorkspace({
   onDeleteMask,
   onUpdateMask,
   onError,
+  onScaleChange,
   disabled = false,
   isDemo = false,
   editingMaskId = null,
@@ -60,6 +82,9 @@ function CanvasWorkspace({
   const [isDrawing, setIsDrawing] = React.useState(false);
   const [editedVerticesPx, setEditedVerticesPx] = React.useState<{ x: number; y: number }[] | null>(null);
   const [draggingVertexIndex, setDraggingVertexIndex] = React.useState<number | null>(null);
+  const [scaleMode, setScaleMode] = React.useState(false);
+  const [scalePoints, setScalePoints] = React.useState<{ x: number; y: number }[]>([]);
+  const [scaleMm, setScaleMm] = React.useState("");
 
   const scale = imageSize && widthMm > 0 ? imageSize.w / widthMm : 1;
   const editingMask = editingMaskId != null ? masks.find((m) => m.id === editingMaskId) : null;
@@ -80,7 +105,7 @@ function CanvasWorkspace({
 
   const handleCanvasClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (disabled || !containerRef.current || !isDrawing) return;
+      if (disabled || !containerRef.current) return;
       const img = containerRef.current.querySelector("img");
       if (!img || !imageSize) return;
       const rect = img.getBoundingClientRect();
@@ -89,12 +114,26 @@ function CanvasWorkspace({
       const x = (e.clientX - rect.left) / scaleX;
       const y = (e.clientY - rect.top) / scaleY;
       if (x < 0 || y < 0 || x > imageSize.w || y > imageSize.h) return;
+
+      // Scale tool mode: first two clicks define calibration line
+      if (scaleMode) {
+        setScalePoints((prev) => {
+          if (prev.length >= 2) return prev;
+          return [...prev, { x, y }];
+        });
+        return;
+      }
+
+      if (!isDrawing) return;
       setDrawingPoints((prev) => [...prev, { x, y }]);
     },
-    [disabled, isDrawing, imageSize]
+    [disabled, isDrawing, imageSize, scaleMode]
   );
 
   const handleStartDrawing = React.useCallback(() => {
+    setScaleMode(false);
+    setScalePoints([]);
+    setScaleMm("");
     setDrawingPoints([]);
     setIsDrawing(true);
     onError?.("");
@@ -104,6 +143,44 @@ function CanvasWorkspace({
     setDrawingPoints([]);
     setIsDrawing(false);
   }, []);
+
+  const handleStartScale = React.useCallback(() => {
+    setIsDrawing(false);
+    setDrawingPoints([]);
+    setScaleMode(true);
+    setScalePoints([]);
+    setScaleMm("");
+    onError?.("");
+  }, [onError]);
+
+  const handleCancelScale = React.useCallback(() => {
+    setScaleMode(false);
+    setScalePoints([]);
+    setScaleMm("");
+  }, []);
+
+  const handleSaveScale = React.useCallback(() => {
+    if (!imageSize || scalePoints.length !== 2 || !onScaleChange) return;
+    const num = parseFloat(scaleMm);
+    if (!Number.isFinite(num) || num <= 0) {
+      onError?.("Podaj dodatnią długość odcinka w mm.");
+      return;
+    }
+    const [p1, p2] = scalePoints;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const linePx = Math.hypot(dx, dy);
+    if (linePx <= 0) {
+      onError?.("Długość odcinka w pikselach jest równa 0.");
+      return;
+    }
+    // px_per_mm = linePx / num; image_width_mm = imageSize.w / px_per_mm
+    const newWidthMm = imageSize.w * (num / linePx);
+    onScaleChange(newWidthMm);
+    setScaleMode(false);
+    setScalePoints([]);
+    setScaleMm("");
+  }, [imageSize, scalePoints, scaleMm, onScaleChange, onError]);
 
   const handleFinishDrawing = React.useCallback(() => {
     if (drawingPoints.length < 3) {
@@ -179,16 +256,41 @@ function CanvasWorkspace({
               Anuluj edycję
             </Button>
           </>
+        ) : scaleMode ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveScale}
+              disabled={disabled || !imageSize || scalePoints.length !== 2 || !onScaleChange}
+            >
+              Zapisz skalę
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={handleCancelScale}>
+              Anuluj skalowanie
+            </Button>
+          </>
         ) : !isDrawing ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleStartDrawing}
-            disabled={disabled || !imageUrl}
-          >
-            Dodaj maskę
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleStartDrawing}
+              disabled={disabled || !imageUrl}
+            >
+              Dodaj maskę
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleStartScale}
+              disabled={disabled || !imageUrl}
+            >
+              Kalibruj skalę
+            </Button>
+          </>
         ) : (
           <>
             <Button type="button" size="sm" onClick={handleFinishDrawing} disabled={disabled}>
@@ -248,6 +350,31 @@ function CanvasWorkspace({
                     />
                   );
                 })}
+                {scaleMode && scalePoints.length > 0 && (
+                  <g>
+                    {scalePoints.length === 2 && (
+                      <line
+                        x1={scalePoints[0].x}
+                        y1={scalePoints[0].y}
+                        x2={scalePoints[1].x}
+                        y2={scalePoints[1].y}
+                        stroke="rgba(255,180,0,0.9)"
+                        strokeWidth={2}
+                      />
+                    )}
+                    {scalePoints.map((p, i) => (
+                      <circle
+                        key={i}
+                        cx={p.x}
+                        cy={p.y}
+                        r={6}
+                        fill="rgba(255,200,0,0.9)"
+                        stroke="rgba(200,120,0,0.9)"
+                        strokeWidth={2}
+                      />
+                    ))}
+                  </g>
+                )}
                 {editingMaskId != null && editVerticesPx.length > 0 && (
                   <g pointerEvents="all">
                     {editVerticesPx.map((p, i) => (
@@ -298,42 +425,90 @@ function CanvasWorkspace({
         )}
       </div>
 
+      {scaleMode && imageSize && scalePoints.length === 2 && (
+        <div className="text-xs text-muted-foreground space-y-1">
+          {(() => {
+            const [p1, p2] = scalePoints;
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const linePx = Math.hypot(dx, dy);
+            return (
+              <p>
+                Skala: długość odcinka ≈ {linePx.toFixed(1)} px. Podaj długość tego odcinka w mm, aby przeskalować obraz.
+              </p>
+            );
+          })()}
+          <div className="flex items-center gap-2">
+            <label className="text-xs">
+              <span className="mr-1">Długość (mm):</span>
+              <input
+                type="number"
+                min={0.1}
+                step={0.1}
+                value={scaleMm}
+                onChange={(e) => setScaleMm(e.target.value)}
+                className="h-7 w-24 rounded border border-input bg-background px-1 text-xs"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
       {masks.length > 0 && (
         <ul className="space-y-1 text-sm">
-          {masks.map((mask) => (
-            <li
-              key={mask.id}
-              className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2"
-            >
-              <span>
-                Maska #{mask.id}
-                {mask.mask_label ? ` – ${mask.mask_label}` : ""} ({mask.vertices.length} wierzchołków)
-              </span>
-              <div className="flex gap-1">
-                {editingMaskId === mask.id ? null : (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onEditingMaskIdChange?.(mask.id)}
-                    disabled={disabled || !onUpdateMask}
-                  >
-                    Edytuj
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => onDeleteMask(mask.id)}
-                  disabled={disabled}
-                >
-                  Usuń
-                </Button>
-              </div>
-            </li>
-          ))}
+          {masks.map((mask) => {
+            const { xSizeMm, ySizeMm, areaMm2 } = polygonMetrics(mask.vertices);
+            return (
+              <li
+                key={mask.id}
+                className="flex flex-col gap-1 rounded border border-border px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>
+                    Maska #{mask.id}
+                    {mask.mask_label ? ` – ${mask.mask_label}` : ""} ({mask.vertices.length} wierzchołków)
+                  </span>
+                  <div className="flex gap-1">
+                    {editingMaskId === mask.id ? null : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEditingMaskIdChange?.(mask.id)}
+                        disabled={disabled || !onUpdateMask}
+                      >
+                        Edytuj
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => onDeleteMask(mask.id)}
+                      disabled={disabled}
+                    >
+                      Usuń
+                    </Button>
+                  </div>
+                </div>
+                <dl className="grid grid-cols-3 gap-x-4 text-xs text-muted-foreground">
+                  <div>
+                    <dt className="sr-only">Szerokość X</dt>
+                    <dd>X: {xSizeMm.toFixed(2)} mm</dd>
+                  </div>
+                  <div>
+                    <dt className="sr-only">Wysokość Y</dt>
+                    <dd>Y: {ySizeMm.toFixed(2)} mm</dd>
+                  </div>
+                  <div>
+                    <dt className="sr-only">Pole</dt>
+                    <dd>Pole: {areaMm2.toFixed(2)} mm²</dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

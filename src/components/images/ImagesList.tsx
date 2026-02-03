@@ -110,6 +110,14 @@ function ImagesList({
     fetchList(page, page_size);
   }, [fetchList, page, page_size]);
 
+  const handleImageDeleted = React.useCallback(
+    (imageId: number) => {
+      setItems((prev) => prev.filter((i) => i.id !== imageId));
+      setTotal((t) => Math.max(0, t - 1));
+    },
+    []
+  );
+
   if (loading && items.length === 0) {
     return (
       <section className="space-y-4" aria-busy="true" aria-label="Ładowanie listy obrazów">
@@ -149,7 +157,12 @@ function ImagesList({
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((image) => (
-              <ImageCard key={image.id} image={image} demoMode={isDemo} />
+              <ImageCard
+                key={image.id}
+                image={image}
+                demoMode={isDemo}
+                onDelete={handleImageDeleted}
+              />
             ))}
           </div>
           {total > page_size && (

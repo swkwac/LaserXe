@@ -9,8 +9,8 @@ export interface AnimationOverlayProps {
   masks: MaskDto[];
   spots: SpotDto[];
   frame: TimelineFrame | null;
-  showDiameterLines: boolean;
-  showAxisLine: boolean;
+  showMovementAxes: boolean;
+  algorithmMode?: "simple" | "advanced";
   centerPx: { x: number; y: number } | null;
   radiusPx: number;
 }
@@ -24,8 +24,8 @@ export function AnimationOverlay({
   masks,
   spots,
   frame,
-  showDiameterLines,
-  showAxisLine,
+  showMovementAxes,
+  algorithmMode,
   centerPx,
   radiusPx,
 }: AnimationOverlayProps) {
@@ -45,19 +45,67 @@ export function AnimationOverlay({
           strokeWidth={1}
         />
       ))}
-      {showDiameterLines &&
-        centerPx &&
-        radiusPx > 0 &&
-        Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
-          const rad = (deg * Math.PI) / 180;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-          const x1 = centerPx.x - radiusPx * cos;
-          const y1 = centerPx.y + radiusPx * sin;
-          const x2 = centerPx.x + radiusPx * cos;
-          const y2 = centerPx.y - radiusPx * sin;
-          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(100,150,255,0.4)" strokeWidth={1} />;
-        })}
+      {showMovementAxes && centerPx && radiusPx > 0 && spots.length > 0 && (() => {
+        if (algorithmMode === "simple") {
+          const uniqueX = Array.from(new Set(spots.map((s) => s.x_mm))).sort((a, b) => a - b);
+          const uniqueY = Array.from(new Set(spots.map((s) => s.y_mm))).sort((a, b) => a - b);
+          return (
+            <>
+              {uniqueX.map((xMm, i) => {
+                const x = xMm * scale;
+                return (
+                  <line
+                    key={`v-${i}`}
+                    x1={x}
+                    y1={centerPx.y - radiusPx}
+                    x2={x}
+                    y2={centerPx.y + radiusPx}
+                    stroke="rgba(120,120,255,0.4)"
+                    strokeWidth={0.8}
+                  />
+                );
+              })}
+              {uniqueY.map((yMm, i) => {
+                const y = yMm * scale;
+                return (
+                  <line
+                    key={`h-${i}`}
+                    x1={centerPx.x - radiusPx}
+                    y1={y}
+                    x2={centerPx.x + radiusPx}
+                    y2={y}
+                    stroke="rgba(120,120,255,0.4)"
+                    strokeWidth={0.8}
+                  />
+                );
+              })}
+            </>
+          );
+        }
+        if (algorithmMode === "advanced" || algorithmMode === undefined) {
+          return Array.from({ length: 36 }, (_, i) => i * 5).map((deg) => {
+            const rad = (deg * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            const x1 = centerPx.x - radiusPx * cos;
+            const y1 = centerPx.y + radiusPx * sin;
+            const x2 = centerPx.x + radiusPx * cos;
+            const y2 = centerPx.y - radiusPx * sin;
+            return (
+              <line
+                key={deg}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="rgba(100,150,255,0.4)"
+                strokeWidth={1}
+              />
+            );
+          });
+        }
+        return null;
+      })()}
       {frame && (
         <>
           {frame.firedIndices.map((spotIdx) => {
@@ -76,16 +124,6 @@ export function AnimationOverlay({
               />
             );
           })}
-          {showAxisLine && centerPx && (
-            <line
-              x1={centerPx.x - radiusPx}
-              y1={centerPx.y}
-              x2={centerPx.x + radiusPx}
-              y2={centerPx.y}
-              stroke="rgba(255,80,80,0.5)"
-              strokeWidth={1}
-            />
-          )}
           {frame.flash && (
             <circle
               cx={frame.headPx.x}

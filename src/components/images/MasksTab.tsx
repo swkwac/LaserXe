@@ -2,7 +2,6 @@ import * as React from "react";
 import { apiFetch } from "@/lib/api";
 import type { ImageDto, MaskDto, MaskListResponseDto, MaskVertexDto } from "@/types";
 import CanvasWorkspace from "./CanvasWorkspace";
-import WidthMmForm from "./WidthMmForm";
 
 export interface MasksTabProps {
   imageId: number;
@@ -77,6 +76,72 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
       onImageUpdate?.(updated);
     },
     [onImageUpdate]
+  );
+
+  const handleScaleChange = React.useCallback(
+    async (newWidthMm: number) => {
+      setMaskError(null);
+      if (!Number.isFinite(newWidthMm) || newWidthMm <= 0) {
+        setMaskError("Nowa szerokość obrazu musi być większa od 0 mm.");
+        return;
+      }
+      const oldWidthMm = image.width_mm;
+      if (oldWidthMm <= 0) {
+        setMaskError("Obecna skala jest nieprawidłowa.");
+        return;
+      }
+      const scaleFactor = newWidthMm / oldWidthMm;
+      setSaving(true);
+      try {
+        // 1. Update image scale (primary source of truth)
+        const res = await apiFetch(`/api/images/${imageId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ width_mm: newWidthMm }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const detail = typeof data?.detail === "string" ? data.detail : "Nie udało się zapisać skali.";
+          setMaskError(detail);
+          return;
+        }
+        const updatedImage = (await res.json()) as ImageDto;
+        // 2. Rescale all mask vertices so they stay aligned with the image
+        const updatedMasks: MaskDto[] = [];
+        for (const mask of masks) {
+          const rescaledVertices: MaskVertexDto[] = mask.vertices.map((v) => ({
+            x: v.x * scaleFactor,
+            y: v.y * scaleFactor,
+          }));
+          const patchRes = await apiFetch(`/api/images/${imageId}/masks/${mask.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ vertices: rescaledVertices }),
+          });
+          if (!patchRes.ok) {
+            setMaskError("Nie udało się przeskalować masek.");
+            // Rollback: revert image to old scale
+            await apiFetch(`/api/images/${imageId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ width_mm: oldWidthMm }),
+            });
+            return;
+          }
+          const patched = (await patchRes.json()) as MaskDto;
+          updatedMasks.push(patched);
+        }
+        setMasks(updatedMasks.length > 0 ? updatedMasks : masks);
+        onImageUpdate?.(updatedImage);
+      } catch (err) {
+        if ((err as Error).message !== "Unauthorized") {
+          setMaskError("Błąd połączenia podczas zapisu skali.");
+        }
+      } finally {
+        setSaving(false);
+      }
+    },
+    [imageId, image.width_mm, masks, onImageUpdate]
   );
 
   const handleSaveMask = React.useCallback(
@@ -205,11 +270,6 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
   return (
     <div className="space-y-6" aria-label="Zakładka Maski">
       <div className="laserme-card">
-        <h2 className="text-sm font-medium mb-2">Szerokość zmiany (skala)</h2>
-        <WidthMmForm image={image} onSave={handleImageUpdate} />
-      </div>
-
-      <div className="laserme-card">
         <h2 className="text-sm font-medium mb-2">Obszar roboczy – maski</h2>
         {loading && <p className="text-sm text-muted-foreground">Ładowanie masek…</p>}
         {error && (
@@ -231,6 +291,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
             onDeleteMask={handleDeleteMask}
             onUpdateMask={handleUpdateMask}
             onError={setMaskError}
+            onScaleChange={handleScaleChange}
             disabled={saving}
             isDemo={isDemo}
             editingMaskId={editingMaskId}
