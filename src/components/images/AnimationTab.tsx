@@ -2,13 +2,20 @@ import * as React from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import {
+  ADVANCED_MOTION_PARAMS,
   buildAnimationTimelineAdvanced,
   buildAnimationTimelineFromSpots,
+  estimateAdvancedTreatmentTimeBreakdown,
+  estimateAdvancedTreatmentTimeMs,
+  estimateSimpleTreatmentTimeBreakdown,
   spotColor,
+  type AdvancedMotionParams,
 } from "@/lib/animationUtils";
 import type { ImageDto } from "@/types";
+import { AdvancedMotionParamsForm } from "./AdvancedMotionParamsForm";
+import { MotionCharts } from "./MotionCharts";
 import { AnimationOverlay } from "./AnimationOverlay";
-import { useAnimationPlayback } from "./useAnimationPlayback";
+import { useAnimationPlayback, useAnimationPlaybackRealtime } from "./useAnimationPlayback";
 import { useAnimationTabData } from "./useAnimationTabData";
 
 export interface AnimationTabProps {
@@ -39,6 +46,11 @@ function AnimationTab({
   const [imageSize, setImageSize] = React.useState<{ w: number; h: number } | null>(null);
   const [currentFrameIndex, setCurrentFrameIndex] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
+  const [motionParams, setMotionParams] = React.useState<AdvancedMotionParams>(() => ({
+    ...ADVANCED_MOTION_PARAMS,
+  }));
+  const [showConfig, setShowConfig] = React.useState(false);
+  const [showCharts, setShowCharts] = React.useState(false);
 
   const {
     imageObjectUrl,
@@ -116,13 +128,22 @@ function AnimationTab({
     });
   }, [spots, algorithmMode, selectedIteration?.params_snapshot?.angle_step_deg]);
 
-  const totalFrames = Math.max(1, Math.round((ANIMATION_DURATION_MS / 1000) * ANIMATION_FPS));
-  const timeline = React.useMemo(() => {
-    if (orderedSpots.length === 0) return [];
-    if (algorithmMode === "advanced" && imageSize && image.width_mm > 0) {
-      const angleStep = selectedIteration?.params_snapshot?.angle_step_deg ?? 5;
+  const isAdvanced = algorithmMode === "advanced" && imageSize && image.width_mm > 0 && orderedSpots.length > 0;
+  const isSimple = algorithmMode === "simple" && imageSize && image.width_mm > 0 && orderedSpots.length > 0;
+  const angleStep = selectedIteration?.params_snapshot?.angle_step_deg ?? 5;
+  const { timeline, totalDurationMs, breakdown, linearMoveSegments, rotateSegments } = React.useMemo(() => {
+    if (orderedSpots.length === 0) {
+      return {
+        timeline: [] as ReturnType<typeof buildAnimationTimelineFromSpots>,
+        totalDurationMs: ANIMATION_DURATION_MS,
+        breakdown: undefined,
+        linearMoveSegments: [] as import("@/lib/animationUtils").LinearMoveSegmentMeta[],
+        rotateSegments: [] as import("@/lib/animationUtils").RotateSegmentMeta[],
+      };
+    }
+    if (isAdvanced) {
       const widthMm = image.width_mm;
-      const heightMm = widthMm * (imageSize.h / imageSize.w);
+      const heightMm = widthMm * (imageSize!.h / imageSize!.w);
       const centerXMm = widthMm / 2;
       const centerYMm = heightMm / 2;
       const spotsCenterMm = orderedSpots.map((s) => ({
@@ -131,30 +152,67 @@ function AnimationTab({
         theta_deg: s.theta_deg,
         t_mm: s.t_mm,
       }));
-      return buildAnimationTimelineAdvanced(
+      const { frames, linearMoveSegments, rotateSegments } = buildAnimationTimelineAdvanced(
         spotsCenterMm,
         scale,
         angleStep,
         centerXMm,
-        centerYMm
+        centerYMm,
+        motionParams
       );
+      const totalMs = estimateAdvancedTreatmentTimeMs(spotsCenterMm, angleStep, motionParams);
+      const breakdownResult = estimateAdvancedTreatmentTimeBreakdown(
+        spotsCenterMm,
+        angleStep,
+        motionParams
+      );
+      return {
+        timeline: frames,
+        totalDurationMs: totalMs,
+        breakdown: breakdownResult,
+        linearMoveSegments,
+        rotateSegments,
+      };
     }
-    return buildAnimationTimelineFromSpots(orderedSpots, scale);
+    // Simple (snake) mode with the same motion model and charts as advanced mode.
+    const timelineSimple = buildAnimationTimelineFromSpots(orderedSpots, scale, motionParams);
+    const breakdownSimple = estimateSimpleTreatmentTimeBreakdown(orderedSpots, motionParams);
+    return {
+      timeline: timelineSimple,
+      totalDurationMs: breakdownSimple.totalMs,
+      breakdown: breakdownSimple,
+      linearMoveSegments: [] as import("@/lib/animationUtils").LinearMoveSegmentMeta[],
+      rotateSegments: [] as import("@/lib/animationUtils").RotateSegmentMeta[],
+    };
   }, [
     orderedSpots,
     scale,
-    algorithmMode,
+    isAdvanced,
     imageSize,
     image.width_mm,
-    selectedIteration?.params_snapshot?.angle_step_deg,
+    angleStep,
+    motionParams,
   ]);
+
+  const totalFrames = Math.max(1, Math.round((totalDurationMs / 1000) * 12));
   const timelineIdx =
     timeline.length <= 1
       ? 0
-      : Math.min(Math.round((currentFrameIndex / (totalFrames - 1)) * (timeline.length - 1)), timeline.length - 1);
+      : isAdvanced
+        ? Math.min(currentFrameIndex, timeline.length - 1)
+        : Math.min(Math.round((currentFrameIndex / Math.max(1, totalFrames - 1)) * (timeline.length - 1)), timeline.length - 1);
   const frame = timeline.length > 0 ? (timeline[timelineIdx] ?? null) : null;
 
-  useAnimationPlayback(playing, totalFrames, ANIMATION_DURATION_MS, setCurrentFrameIndex, setPlaying);
+  useAnimationPlayback(!isAdvanced && playing, totalFrames, totalDurationMs, setCurrentFrameIndex, setPlaying);
+  useAnimationPlaybackRealtime(isAdvanced && playing, timeline, totalDurationMs, setCurrentFrameIndex, setPlaying);
+
+  // Reset animation when motion params change (advanced mode)
+  React.useEffect(() => {
+    if (isAdvanced) {
+      setPlaying(false);
+      setCurrentFrameIndex(0);
+    }
+  }, [motionParams, isAdvanced]);
 
   const handleIterationChange = React.useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -179,6 +237,31 @@ function AnimationTab({
     const img = e.currentTarget;
     setImageSize({ w: img.naturalWidth, h: img.naturalHeight });
   }, []);
+
+  // Reset motion params defaults when switching between simple/advanced modes.
+  React.useEffect(() => {
+    setMotionParams((prev) => {
+      if (algorithmMode === "simple") {
+        return {
+          ...prev,
+          linearSpeedMmPerS: 200,
+          linearAccelMmPerS2: 60_000,
+          dwellMsPerSpot: 20,
+        };
+      }
+      if (algorithmMode === "advanced") {
+        return {
+          ...prev,
+          linearSpeedMmPerS: 1000,
+          linearAccelMmPerS2: 200_000,
+          dwellMsPerSpot: 20,
+        };
+      }
+      return prev;
+    });
+  }, [algorithmMode]);
+
+  const currentSpeedMmPerS = frame?.v_mm_per_s ?? null;
 
   return (
     <div className="space-y-4" aria-label="Zakładka Animacja">
@@ -230,6 +313,40 @@ function AnimationTab({
             Reset
           </Button>
         </div>
+        {(isAdvanced || isSimple) && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowConfig((prev) => !prev)}
+              >
+                Konfiguracja
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCharts((prev) => !prev)}
+              >
+                Wykresy prędkości
+              </Button>
+              {showConfig && (
+                <AdvancedMotionParamsForm
+                  value={motionParams}
+                  onChange={setMotionParams}
+                  totalDurationMs={totalDurationMs}
+                  breakdown={breakdown}
+                />
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground ml-auto">
+              Prędkość wózka:{" "}
+              {currentSpeedMmPerS != null ? `${currentSpeedMmPerS.toFixed(1)} mm/s` : "—"}
+            </div>
+          </>
+        )}
         <Controller
           name="showDiameterLines"
           control={control}
@@ -257,47 +374,73 @@ function AnimationTab({
         </p>
       ) : (
       <div
-        ref={containerRef}
-        className="relative inline-block max-w-full border border-border rounded-md overflow-hidden bg-muted/30"
+        className={
+          (isAdvanced || isSimple) && showCharts && timeline.length > 0
+            ? "flex flex-row gap-4 items-start"
+            : ""
+        }
       >
-        {imageObjectUrl && (
-          <>
-            <img
-              src={imageObjectUrl}
-              alt="Obraz zmiany skórnej"
-              className="block max-h-[70vh] w-auto"
-              onLoad={handleImageLoad}
-              draggable={false}
-              style={{ userSelect: "none" }}
-            />
-            {imageSize && (
-              <AnimationOverlay
-                imageSize={imageSize}
-                scale={scale}
-                masks={masks}
-                spots={orderedSpots}
-                frame={frame}
-                showMovementAxes={showDiameterLines}
-                algorithmMode={algorithmMode}
-                centerPx={centerPx}
-                radiusPx={radiusPx}
+        <div
+          ref={containerRef}
+          className={`relative border border-border rounded-md overflow-hidden bg-muted/30 ${
+            isAdvanced && showCharts && timeline.length > 0
+              ? "flex-1 min-w-0 inline-block max-w-full"
+              : "inline-block max-w-full"
+          }`}
+        >
+          {imageObjectUrl && (
+            <>
+              <img
+                src={imageObjectUrl}
+                alt="Obraz zmiany skórnej"
+                className="block max-h-[70vh] w-auto"
+                onLoad={handleImageLoad}
+                draggable={false}
+                style={{ userSelect: "none" }}
               />
-            )}
-          </>
-        )}
-        {!imageObjectUrl && (
-          <div className="flex items-center justify-center w-96 h-48 text-muted-foreground text-sm">
-            Ładowanie obrazu…
-          </div>
-        )}
-        {isDemo && imageObjectUrl && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
-            <span
-              className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
-              style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}
-            >
-              DEMO
-            </span>
+              {imageSize && (
+                <AnimationOverlay
+                  imageSize={imageSize}
+                  scale={scale}
+                  masks={masks}
+                  spots={orderedSpots}
+                  frame={frame}
+                  showMovementAxes={showDiameterLines}
+                  algorithmMode={algorithmMode}
+                  centerPx={centerPx}
+                  radiusPx={radiusPx}
+                />
+              )}
+            </>
+          )}
+          {!imageObjectUrl && (
+            <div className="flex items-center justify-center w-96 h-48 text-muted-foreground text-sm">
+              Ładowanie obrazu…
+            </div>
+          )}
+          {isDemo && imageObjectUrl && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
+              <span
+                className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
+                style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}
+              >
+                DEMO
+              </span>
+            </div>
+          )}
+        </div>
+        {(isAdvanced || isSimple) && showCharts && timeline.length > 0 && (
+          <div className="flex-shrink-0 w-[700px] overflow-y-auto max-h-[85vh]">
+            <MotionCharts
+              timeline={timeline}
+              linearMoveSegments={linearMoveSegments}
+              rotateSegments={rotateSegments}
+              compact
+              showRotationChart={isAdvanced}
+              currentFrame={frame}
+              totalDurationMs={totalDurationMs}
+              breakdown={breakdown}
+            />
           </div>
         )}
       </div>

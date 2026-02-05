@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
+  ADVANCED_MOTION_PARAMS,
   buildAnimationTimelineAdvanced,
   buildAnimationTimelineFromSpots,
+  computeLinearMoveProfile,
+  computeLinearMoveTimeMs,
+  computeRotateTimeMs,
+  estimateAdvancedTreatmentTimeMs,
   spotColor,
   spotPxFromTopLeftMm,
+  velocityAtTime,
 } from "./animationUtils";
 import type { SpotDto } from "@/types";
 
@@ -109,8 +115,11 @@ describe("animationUtils", () => {
   });
 
   describe("buildAnimationTimelineAdvanced", () => {
-    it("returns empty for empty spots", () => {
-      expect(buildAnimationTimelineAdvanced([], 1, 5, 12.5, 12.5)).toEqual([]);
+    it("returns empty frames and segments for empty spots", () => {
+      const result = buildAnimationTimelineAdvanced([], 1, 5, 12.5, 12.5);
+      expect(result.frames).toEqual([]);
+      expect(result.linearMoveSegments).toEqual([]);
+      expect(result.rotateSegments).toEqual([]);
     });
 
     it("sorts diameter-by-diameter and produces frames", () => {
@@ -119,13 +128,238 @@ describe("animationUtils", () => {
         { x_mm: 0, y_mm: 5, theta_deg: 90, t_mm: 5 },
         { x_mm: 10, y_mm: 0, theta_deg: 0, t_mm: 10 },
       ];
-      const timeline = buildAnimationTimelineAdvanced(spots, 1, 5, 12.5, 12.5);
-      expect(timeline.length).toBeGreaterThan(4);
-      expect(timeline[0]?.firedIndices).toEqual([0]);
-      const lastFrame = timeline[timeline.length - 1];
+      const { frames } = buildAnimationTimelineAdvanced(spots, 1, 5, 12.5, 12.5);
+      expect(frames.length).toBeGreaterThan(4);
+      expect(frames[0]?.firedIndices).toEqual([0]);
+      const lastFrame = frames[frames.length - 1];
       expect(lastFrame?.firedIndices).toEqual([0, 1, 2]);
       expect(lastFrame?.headPx.x).toBeCloseTo(12.5, 0);
       expect(lastFrame?.headPx.y).toBeCloseTo(7.5, 0);
+    });
+
+    it("assigns t_ms for real-time playback when motion params used", () => {
+      const spots = [{ x_mm: 5, y_mm: 0, theta_deg: 0, t_mm: 5 }];
+      const { frames } = buildAnimationTimelineAdvanced(spots, 1, 5, 12.5, 12.5);
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames[0]?.t_ms).toBeDefined();
+      expect(frames[0]?.t_ms).toBeGreaterThanOrEqual(0);
+    });
+
+    it("produces linearMoveSegments for linear moves when fire-in-motion enabled", () => {
+      const spots = [
+        { x_mm: 5, y_mm: 0, theta_deg: 0, t_mm: 5 },
+        { x_mm: 10, y_mm: 0, theta_deg: 0, t_mm: 10 },
+      ];
+      const params = {
+        ...ADVANCED_MOTION_PARAMS,
+        fireInMotionEnabled: true,
+        minEmissionSpeedMmPerS: 50,
+      };
+      const { frames, linearMoveSegments } = buildAnimationTimelineAdvanced(
+        spots,
+        1,
+        5,
+        12.5,
+        12.5,
+        params
+      );
+      expect(frames.length).toBeGreaterThan(0);
+      expect(linearMoveSegments.length).toBe(1);
+      expect(linearMoveSegments[0]!.profile.distanceMm).toBeGreaterThan(0);
+      expect(linearMoveSegments[0]!.tStartMs).toBeLessThan(linearMoveSegments[0]!.tEndMs);
+    });
+
+    it("produces rotateSegments for rotations between diameters", () => {
+      const spots = [
+        { x_mm: 5, y_mm: 0, theta_deg: 0, t_mm: 5 },
+        { x_mm: 0, y_mm: 5, theta_deg: 90, t_mm: 5 },
+        { x_mm: 10, y_mm: 0, theta_deg: 0, t_mm: 10 },
+      ];
+      const { frames, rotateSegments } = buildAnimationTimelineAdvanced(
+        spots,
+        1,
+        5,
+        12.5,
+        12.5
+      );
+      expect(frames.length).toBeGreaterThan(0);
+      // Sorted: 0° (5mm), 0° (10mm), 90° → one linear move, one rotate
+      expect(rotateSegments.length).toBeGreaterThanOrEqual(1);
+      if (rotateSegments.length > 0) {
+        expect(rotateSegments[0]!.profile.angleDeg).toBeGreaterThan(0);
+        expect(rotateSegments[0]!.tStartMs).toBeLessThan(rotateSegments[0]!.tEndMs);
+      }
+    });
+  });
+
+  describe("computeLinearMoveTimeMs", () => {
+    it("returns 0 for zero distance", () => {
+      expect(computeLinearMoveTimeMs(0, 400, 100)).toBe(0);
+    });
+
+    it("returns positive time for positive distance", () => {
+      const t = computeLinearMoveTimeMs(10, 400, 100);
+      expect(t).toBeGreaterThan(0);
+      expect(t).toBeLessThan(1000);
+    });
+  });
+
+  describe("computeRotateTimeMs", () => {
+    it("returns 0 for zero angle", () => {
+      expect(computeRotateTimeMs(0, 1)).toBe(0);
+    });
+
+    it("returns positive time for positive angle", () => {
+      expect(computeRotateTimeMs(5, 1)).toBeGreaterThan(0);
+      expect(computeRotateTimeMs(90, 1)).toBeGreaterThan(0);
+    });
+
+    it("rotation time grows with angle for fixed msPerDeg", () => {
+      const tSmall = computeRotateTimeMs(10, 1);
+      const tLarge = computeRotateTimeMs(90, 1);
+      expect(tLarge).toBeGreaterThan(tSmall);
+    });
+
+    it("rotation time decreases when msPerDeg decreases", () => {
+      const angle = 45;
+      const slow = computeRotateTimeMs(angle, 2); // slower setting
+      const fast = computeRotateTimeMs(angle, 0.5); // faster setting
+      expect(fast).toBeLessThanOrEqual(slow);
+    });
+  });
+
+  describe("computeLinearMoveProfile", () => {
+    const vMax = 400;
+    const accel = 100;
+
+    it("returns zero-duration profile for zero distance", () => {
+      const p = computeLinearMoveProfile(0, vMax, accel, 0);
+      expect(p.tTotal).toBe(0);
+      expect(p.distanceMm).toBe(0);
+    });
+
+    it("returns classic triangle profile for short distance when vEmit=0", () => {
+      const d = 100;
+      const p = computeLinearMoveProfile(d, vMax, accel, 0);
+      expect(p.type).toBe("triangle");
+      expect(p.vStart).toBe(0);
+      expect(p.vEnd).toBe(0);
+      expect(p.vPeak).toBeLessThan(vMax);
+      expect(p.tConst).toBe(0);
+      expect(p.tTotal).toBeCloseTo(2 * Math.sqrt(d / accel), 6);
+    });
+
+    it("returns classic trapezoid profile for long distance when vEmit=0", () => {
+      const dMax = (vMax * vMax) / accel;
+      const d = dMax + 500;
+      const p = computeLinearMoveProfile(d, vMax, accel, 0);
+      expect(p.type).toBe("trapezoid");
+      expect(p.vPeak).toBe(vMax);
+      expect(p.tAccel).toBeCloseTo(vMax / accel, 6);
+      expect(p.tConst).toBeGreaterThan(0);
+    });
+
+    it("returns fire-in-motion trapezoid for long distance with vEmit>0", () => {
+      const vEmit = 50;
+      const d = 2000;
+      const p = computeLinearMoveProfile(d, vMax, accel, vEmit);
+      expect(p.type).toBe("trapezoid");
+      expect(p.vStart).toBe(vEmit);
+      expect(p.vEnd).toBe(vEmit);
+      expect(p.vPeak).toBe(vMax);
+      expect(p.tAccel).toBeCloseTo((vMax - vEmit) / accel, 6);
+    });
+
+    it("returns fire-in-motion triangle for short distance with vEmit>0", () => {
+      const vEmit = 50;
+      const d = 200;
+      const p = computeLinearMoveProfile(d, vMax, accel, vEmit);
+      expect(p.type).toBe("triangle");
+      expect(p.vPeak).toBeLessThan(vMax);
+      expect(p.vPeak).toBeGreaterThan(vEmit);
+      expect(p.tConst).toBe(0);
+    });
+  });
+
+  describe("velocityAtTime", () => {
+    it("returns vStart for τ <= 0", () => {
+      const p = {
+        type: "trapezoid" as const,
+        vStart: 50,
+        vEnd: 50,
+        vPeak: 400,
+        accel: 100,
+        tAccel: 3.5,
+        tConst: 1,
+        tDecel: 3.5,
+        tTotal: 8,
+        distanceMm: 1500,
+      };
+      expect(velocityAtTime(p, -1)).toBe(50);
+      expect(velocityAtTime(p, 0)).toBe(50);
+    });
+
+    it("returns vEnd for τ >= tTotal", () => {
+      const p = {
+        type: "trapezoid" as const,
+        vStart: 50,
+        vEnd: 50,
+        vPeak: 400,
+        accel: 100,
+        tAccel: 3.5,
+        tConst: 1,
+        tDecel: 3.5,
+        tTotal: 8,
+        distanceMm: 1500,
+      };
+      expect(velocityAtTime(p, 8)).toBe(50);
+      expect(velocityAtTime(p, 10)).toBe(50);
+    });
+
+    it("returns linear ramp during accel phase", () => {
+      const p = {
+        type: "trapezoid" as const,
+        vStart: 50,
+        vEnd: 50,
+        vPeak: 400,
+        accel: 100,
+        tAccel: 3.5,
+        tConst: 1,
+        tDecel: 3.5,
+        tTotal: 8,
+        distanceMm: 1500,
+      };
+      expect(velocityAtTime(p, 1)).toBeCloseTo(50 + 100 * 1, 6);
+      expect(velocityAtTime(p, 3.5)).toBeCloseTo(400, 6);
+    });
+
+    it("returns vPeak during constant phase", () => {
+      const p = {
+        type: "trapezoid" as const,
+        vStart: 50,
+        vEnd: 50,
+        vPeak: 400,
+        accel: 100,
+        tAccel: 3.5,
+        tConst: 1,
+        tDecel: 3.5,
+        tTotal: 8,
+        distanceMm: 1500,
+      };
+      expect(velocityAtTime(p, 4)).toBe(400);
+      expect(velocityAtTime(p, 4.5)).toBe(400);
+    });
+  });
+
+  describe("estimateAdvancedTreatmentTimeMs", () => {
+    it("returns 0 for empty spots", () => {
+      expect(estimateAdvancedTreatmentTimeMs([], 5)).toBe(0);
+    });
+
+    it("returns dwell time for one spot (dwell only)", () => {
+      const spots = [{ x_mm: 5, y_mm: 0, theta_deg: 0, t_mm: 5 }];
+      const t = estimateAdvancedTreatmentTimeMs(spots, 5);
+      expect(t).toBe(20);
     });
   });
 });
