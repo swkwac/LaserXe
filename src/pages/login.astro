@@ -2,15 +2,18 @@
 import Layout from "../layouts/Layout.astro";
 import LoginForm from "../components/auth/LoginForm";
 
-const rawRedirect = Astro.url.searchParams.get("redirect") ?? "/images";
-const redirectUrl = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//") ? rawRedirect : "/images";
+const rawRedirect = Astro.url.searchParams.get("redirect") ?? "/grid-generator";
+const redirectUrl = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//") ? rawRedirect : "/grid-generator";
 const messageParam = Astro.url.searchParams.get("message") ?? null;
 ---
 
-<Layout title="Logowanie – LaserXe" showHeader={false}>
+<Layout title="Login – LaserXe" showHeader={false}>
   <main class="flex min-h-full flex-col items-center justify-center px-4 py-12" role="main">
     <div class="laserme-card w-full max-w-sm space-y-6">
-      <h1 class="text-center text-2xl font-semibold tracking-tight text-foreground">Logowanie</h1>
+      <h1 class="text-center text-2xl font-semibold tracking-tight text-foreground">
+        <span data-lang="pl">Logowanie</span>
+        <span data-lang="en">Login</span>
+      </h1>
       <LoginForm client:load redirectUrl={redirectUrl} message={messageParam} />
     </div>
   </main>

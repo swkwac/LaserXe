@@ -163,7 +163,7 @@ function CanvasWorkspace({
     if (!imageSize || scalePoints.length !== 2 || !onScaleChange) return;
     const num = parseFloat(scaleMm);
     if (!Number.isFinite(num) || num <= 0) {
-      onError?.("Podaj dodatnią długość odcinka w mm.");
+      onError?.("Enter a positive segment length in mm.");
       return;
     }
     const [p1, p2] = scalePoints;
@@ -171,7 +171,7 @@ function CanvasWorkspace({
     const dy = p2.y - p1.y;
     const linePx = Math.hypot(dx, dy);
     if (linePx <= 0) {
-      onError?.("Długość odcinka w pikselach jest równa 0.");
+      onError?.("The segment length in pixels is equal to 0.");
       return;
     }
     // px_per_mm = linePx / num; image_width_mm = imageSize.w / px_per_mm
@@ -184,7 +184,7 @@ function CanvasWorkspace({
 
   const handleFinishDrawing = React.useCallback(() => {
     if (drawingPoints.length < 3) {
-      onError?.("Dodaj co najmniej 3 punkty, aby zamknąć maskę.");
+      onError?.("Add at least 3 points to close the mask.");
       return;
     }
     const verticesMm = pxToMm(drawingPoints, scale);
@@ -250,10 +250,12 @@ function CanvasWorkspace({
         {editingMaskId != null ? (
           <>
             <Button type="button" size="sm" onClick={handleSaveEdit} disabled={disabled || !onUpdateMask}>
-              Zapisz zmiany
+              <span data-lang="pl">Zapisz zmiany</span>
+              <span data-lang="en">Save changes</span>
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleCancelEdit}>
-              Anuluj edycję
+              <span data-lang="pl">Anuluj edycję</span>
+              <span data-lang="en">Cancel editing</span>
             </Button>
           </>
         ) : scaleMode ? (
@@ -434,13 +436,22 @@ function CanvasWorkspace({
             const linePx = Math.hypot(dx, dy);
             return (
               <p>
-                Skala: długość odcinka ≈ {linePx.toFixed(1)} px. Podaj długość tego odcinka w mm, aby przeskalować obraz.
+                <span data-lang="pl">
+                  Skala: długość odcinka ≈ {linePx.toFixed(1)} px. Podaj długość tego odcinka w mm, aby przeskalować
+                  obraz.
+                </span>
+                <span data-lang="en">
+                  Scale: segment length ≈ {linePx.toFixed(1)} px. Enter this segment length in mm to rescale the image.
+                </span>
               </p>
             );
           })()}
           <div className="flex items-center gap-2">
             <label className="text-xs">
-              <span className="mr-1">Długość (mm):</span>
+              <span className="mr-1">
+                <span data-lang="pl">Długość (mm):</span>
+                <span data-lang="en">Length (mm):</span>
+              </span>
               <input
                 type="number"
                 min={0.1}

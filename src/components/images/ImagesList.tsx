@@ -67,7 +67,7 @@ function ImagesList({
         const detail =
           typeof data === "object" && data !== null && "detail" in data
             ? String((data as { detail: unknown }).detail)
-            : "Błąd ładowania listy.";
+            : "Failed to load list.";
         setErrorMessage(detail);
         setItems([]);
         setTotal(0);
@@ -80,7 +80,7 @@ function ImagesList({
       setPageSize(data.page_size ?? ps);
     } catch (e) {
       if ((e as Error).message !== "Unauthorized") {
-        setErrorMessage("Błąd połączenia. Spróbuj ponownie.");
+        setErrorMessage("Connection error. Please try again.");
         setItems([]);
         setTotal(0);
       }
@@ -120,7 +120,7 @@ function ImagesList({
 
   if (loading && items.length === 0) {
     return (
-      <section className="space-y-4" aria-busy="true" aria-label="Ładowanie listy obrazów">
+      <section className="space-y-4" aria-busy="true" aria-label="Loading image list">
         <div className="h-10 w-48 animate-pulse rounded bg-muted" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
@@ -132,10 +132,11 @@ function ImagesList({
   }
 
   return (
-    <section className="space-y-6" aria-label="Lista obrazów">
+    <section className="space-y-6" aria-label="Images list">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button type="button" onClick={handleAddImage}>
-          Dodaj obraz
+          <span data-lang="pl">Dodaj obraz</span>
+          <span data-lang="en">Add image</span>
         </Button>
       </div>
 
@@ -146,7 +147,8 @@ function ImagesList({
         >
           <p>{errorMessage}</p>
           <Button type="button" variant="outline" size="sm" className="mt-2" onClick={handleRetry}>
-            Odśwież
+            <span data-lang="pl">Odśwież</span>
+            <span data-lang="en">Refresh</span>
           </Button>
         </div>
       )}

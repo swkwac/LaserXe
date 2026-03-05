@@ -8,7 +8,7 @@ export interface LogoutButtonProps {
   children?: React.ReactNode;
 }
 
-function LogoutButton({ redirectPath = "/login", className, children = "Wyloguj" }: LogoutButtonProps) {
+function LogoutButton({ redirectPath = "/login", className, children }: LogoutButtonProps) {
   const [isLoading, setIsLoading] = React.useState(false);
 
   const handleClick = React.useCallback(async () => {
@@ -33,7 +33,21 @@ function LogoutButton({ redirectPath = "/login", className, children = "Wyloguj"
       disabled={isLoading}
       aria-busy={isLoading}
     >
-      {isLoading ? "Wylogowanie…" : children}
+      {isLoading ? (
+        <>
+          <span data-lang="pl">Wylogowanie…</span>
+          <span data-lang="en">Logging out…</span>
+        </>
+      ) : (
+        <>
+          {children ?? (
+            <>
+              <span data-lang="pl">Wyloguj</span>
+              <span data-lang="en">Log out</span>
+            </>
+          )}
+        </>
+      )}
     </Button>
   );
 }

@@ -24,10 +24,16 @@ const DEFAULT_ANGLE_STEP = 5;
 export type SimpleInputMode = "coverage" | "spacing";
 
 export interface GridGeneratorFormProps {
-  onResult: (result: GridGeneratorResponseDto, meta?: { simple_input_mode?: SimpleInputMode }) => void;
+  onResult: (
+    result: GridGeneratorResponseDto,
+    meta?: { simple_input_mode?: SimpleInputMode; advanced_input_mode?: SimpleInputMode }
+  ) => void;
 }
 
-const defaultParams: GridGeneratorRequestDto & { simple_input_mode?: SimpleInputMode } = {
+const defaultParams: GridGeneratorRequestDto & {
+  simple_input_mode?: SimpleInputMode;
+  advanced_input_mode?: SimpleInputMode;
+} = {
   aperture_type: "simple",
   spot_diameter_um: 300,
   target_coverage_pct: DEFAULT_COVERAGE,
@@ -38,7 +44,10 @@ const defaultParams: GridGeneratorRequestDto & { simple_input_mode?: SimpleInput
 
 function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
   const [params, setParams] = React.useState<
-    GridGeneratorRequestDto & { simple_input_mode?: SimpleInputMode }
+    GridGeneratorRequestDto & {
+      simple_input_mode?: SimpleInputMode;
+      advanced_input_mode?: SimpleInputMode;
+    }
   >(() => {
     const saved = loadGridGeneratorParams() as StoredGridParams | null;
     if (saved) {
@@ -47,6 +56,7 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
         ...defaultParams,
         ...saved,
         simple_input_mode: isSimple ? (saved.simple_input_mode ?? "coverage") : undefined,
+        advanced_input_mode: !isSimple ? (saved.advanced_input_mode ?? "coverage") : undefined,
         target_coverage_pct: saved.target_coverage_pct ?? defaultParams.target_coverage_pct,
         axis_distance_mm: saved.axis_distance_mm ?? defaultParams.axis_distance_mm,
         angle_step_deg: saved.angle_step_deg ?? defaultParams.angle_step_deg,
@@ -59,6 +69,7 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
 
   const apertureFieldsetId = useId();
   const simpleModeFieldsetId = useId();
+  const advancedModeFieldsetId = useId();
   const spotDiameterId = useId();
   const targetId = useId();
   const axisDistanceId = useId();
@@ -78,8 +89,11 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       ...prev,
       aperture_type: type,
       simple_input_mode: type === "simple" ? (prev.simple_input_mode ?? "coverage") : undefined,
+       advanced_input_mode: type === "advanced" ? (prev.advanced_input_mode ?? "coverage") : undefined,
       target_coverage_pct: type === "advanced" ? (prev.target_coverage_pct ?? DEFAULT_COVERAGE) : prev.target_coverage_pct,
-      axis_distance_mm: type === "simple" ? (prev.axis_distance_mm ?? DEFAULT_AXIS_DISTANCE_MM) : undefined,
+      axis_distance_mm: type === "simple"
+        ? (prev.axis_distance_mm ?? DEFAULT_AXIS_DISTANCE_MM)
+        : prev.axis_distance_mm,
       angle_step_deg: type === "advanced" ? DEFAULT_ANGLE_STEP : undefined,
     }));
   }, []);
@@ -87,6 +101,14 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
   const handleSpotDiameterChange = React.useCallback((um: 300 | 150) => {
     setError(null);
     setParams((prev) => ({ ...prev, spot_diameter_um: um }));
+  }, []);
+
+  const handleAdvancedInputModeChange = React.useCallback((mode: SimpleInputMode) => {
+    setError(null);
+    setParams((prev) => ({
+      ...prev,
+      advanced_input_mode: mode,
+    }));
   }, []);
 
   const handleTargetChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,19 +162,28 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
             payload.axis_distance_mm = params.axis_distance_mm ?? DEFAULT_AXIS_DISTANCE_MM;
           }
         } else {
-          payload.target_coverage_pct = params.target_coverage_pct ?? DEFAULT_COVERAGE;
+          const mode = params.advanced_input_mode ?? "coverage";
+          if (mode === "coverage") {
+            payload.target_coverage_pct = params.target_coverage_pct ?? DEFAULT_COVERAGE;
+          } else {
+            payload.axis_distance_mm = params.axis_distance_mm ?? DEFAULT_AXIS_DISTANCE_MM;
+          }
           payload.angle_step_deg = params.angle_step_deg ?? DEFAULT_ANGLE_STEP;
         }
         const result = await generateGrid(payload);
-        saveGridGeneratorParams({ ...payload, simple_input_mode: params.simple_input_mode });
+        saveGridGeneratorParams({
+          ...payload,
+          simple_input_mode: params.simple_input_mode,
+          advanced_input_mode: params.advanced_input_mode,
+        });
         const meta =
           params.aperture_type === "simple"
             ? { simple_input_mode: params.simple_input_mode ?? "coverage" }
-            : undefined;
+            : { advanced_input_mode: params.advanced_input_mode ?? "coverage" };
         onResult(result, meta);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Błąd połączenia.";
-        setError(msg === "Unauthorized" ? "Sesja wygasła. Zaloguj się ponownie." : msg);
+        const msg = err instanceof Error ? err.message : "Connection error.";
+        setError(msg === "Unauthorized" ? "Session expired. Please log in again." : msg);
       } finally {
         setGenerating(false);
       }
@@ -170,10 +201,13 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       <fieldset
         id={apertureFieldsetId}
         className="space-y-2"
-        aria-label="Typ apertury"
+        aria-label="Aperture type"
         disabled={generating}
       >
-        <span className="text-sm font-medium">Typ apertury</span>
+        <span className="text-sm font-medium">
+          <span data-lang="pl">Typ apertury</span>
+          <span data-lang="en">Aperture type</span>
+        </span>
         <div className="flex flex-col gap-2">
           <label
             htmlFor={`${apertureFieldsetId}-simple`}
@@ -189,9 +223,13 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
               className="mt-1"
             />
             <span>
-              <span className="font-medium">Prosty – 12×12 mm</span>
+              <span className="font-medium">
+                <span data-lang="pl">Prosty – 12×12 mm</span>
+                <span data-lang="en">Simple – 12×12 mm</span>
+              </span>
               <p className="text-xs text-muted-foreground">
-                Prostokąt, siatka XY, odstęp między osiami 0.5–3 mm.
+                <span data-lang="pl">Prostokąt, siatka XY, odstęp między osiami 0.5–3 mm.</span>
+                <span data-lang="en">Rectangle, XY grid, axis spacing 0.5–3 mm.</span>
               </p>
             </span>
           </label>
@@ -209,9 +247,13 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
               className="mt-1"
             />
             <span>
-              <span className="font-medium">Zaawansowany – 25 mm średnicy</span>
+              <span className="font-medium">
+                <span data-lang="pl">Zaawansowany – 25 mm średnicy</span>
+                <span data-lang="en">Advanced – 25 mm diameter</span>
+              </span>
               <p className="text-xs text-muted-foreground">
-                Okrąg, linie średnicowe, krok kąta 3–20°.
+                <span data-lang="pl">Okrąg, linie średnicowe, krok kąta 3–20°.</span>
+                <span data-lang="en">Circle, diameter lines, angle step 3–20°.</span>
               </p>
             </span>
           </label>
@@ -221,9 +263,12 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       <fieldset
         className="space-y-2"
         disabled={generating}
-        aria-label="Średnica spotu"
+        aria-label="Spot diameter"
       >
-        <span className="text-sm font-medium">Średnica spotu</span>
+        <span className="text-sm font-medium">
+          <span data-lang="pl">Średnica spotu</span>
+          <span data-lang="en">Spot diameter</span>
+        </span>
         <div className="flex gap-4">
           <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
             <input
@@ -254,10 +299,13 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
         <fieldset
           id={simpleModeFieldsetId}
           className="space-y-2"
-          aria-label="Tryb wprowadzania (prosty apertura)"
+          aria-label="Input parameter (simple aperture)"
           disabled={generating}
         >
-          <span className="text-sm font-medium">Parametr wejściowy</span>
+          <span className="text-sm font-medium">
+            <span data-lang="pl">Parametr wejściowy</span>
+            <span data-lang="en">Input parameter</span>
+          </span>
           <div className="flex flex-col gap-2">
             <label
               htmlFor={`${simpleModeFieldsetId}-coverage`}
@@ -271,7 +319,10 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
                 checked={(params.simple_input_mode ?? "coverage") === "coverage"}
                 onChange={() => handleSimpleInputModeChange("coverage")}
               />
-              <span>Pokrycie docelowe (%)</span>
+              <span>
+                <span data-lang="pl">Pokrycie docelowe (%)</span>
+                <span data-lang="en">Target coverage (%)</span>
+              </span>
             </label>
             <label
               htmlFor={`${simpleModeFieldsetId}-spacing`}
@@ -285,7 +336,10 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
                 checked={(params.simple_input_mode ?? "coverage") === "spacing"}
                 onChange={() => handleSimpleInputModeChange("spacing")}
               />
-              <span>Odstęp między osiami XY (mm)</span>
+              <span>
+                <span data-lang="pl">Odstęp między osiami XY (mm)</span>
+                <span data-lang="en">XY axis spacing (mm)</span>
+              </span>
             </label>
           </div>
         </fieldset>
@@ -294,7 +348,10 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       {params.aperture_type === "simple" &&
         (params.simple_input_mode ?? "coverage") === "coverage" && (
           <div className="space-y-2">
-            <Label htmlFor={targetId}>Pokrycie docelowe (%)</Label>
+            <Label htmlFor={targetId}>
+              <span data-lang="pl">Pokrycie docelowe (%)</span>
+              <span data-lang="en">Target coverage (%)</span>
+            </Label>
             <Input
               id={targetId}
               type="number"
@@ -310,7 +367,10 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       {params.aperture_type === "simple" &&
         (params.simple_input_mode ?? "coverage") === "spacing" && (
           <div className="space-y-2">
-            <Label htmlFor={axisDistanceId}>Odstęp między osiami (mm)</Label>
+            <Label htmlFor={axisDistanceId}>
+              <span data-lang="pl">Odstęp między osiami (mm)</span>
+              <span data-lang="en">Axis spacing (mm)</span>
+            </Label>
             <Input
               id={axisDistanceId}
               type="number"
@@ -325,20 +385,95 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
 
       {params.aperture_type === "advanced" && (
         <>
+          <fieldset
+            id={advancedModeFieldsetId}
+            className="space-y-2"
+            aria-label="Input parameter (advanced aperture)"
+            disabled={generating}
+          >
+            <span className="text-sm font-medium">
+              <span data-lang="pl">Parametr wejściowy</span>
+              <span data-lang="en">Input parameter</span>
+            </span>
+            <div className="flex flex-col gap-2">
+              <label
+                htmlFor={`${advancedModeFieldsetId}-coverage`}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <input
+                  id={`${advancedModeFieldsetId}-coverage`}
+                  type="radio"
+                  name="advanced_input_mode"
+                  value="coverage"
+                  checked={(params.advanced_input_mode ?? "coverage") === "coverage"}
+                  onChange={() => handleAdvancedInputModeChange("coverage")}
+                />
+                <span>
+                  <span data-lang="pl">Pokrycie docelowe (%)</span>
+                  <span data-lang="en">Target coverage (%)</span>
+                </span>
+              </label>
+              <label
+                htmlFor={`${advancedModeFieldsetId}-spacing`}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <input
+                  id={`${advancedModeFieldsetId}-spacing`}
+                  type="radio"
+                  name="advanced_input_mode"
+                  value="spacing"
+                  checked={(params.advanced_input_mode ?? "coverage") === "spacing"}
+                  onChange={() => handleAdvancedInputModeChange("spacing")}
+                />
+                <span>
+                  <span data-lang="pl">Odstęp między punktami na średnicy (mm)</span>
+                  <span data-lang="en">Spacing between points on diameter (mm)</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          {(params.advanced_input_mode ?? "coverage") === "coverage" && (
+            <div className="space-y-2">
+              <Label htmlFor={targetId}>
+                <span data-lang="pl">Pokrycie docelowe (%)</span>
+                <span data-lang="en">Target coverage (%)</span>
+              </Label>
+              <Input
+                id={targetId}
+                type="number"
+                min={MIN_COVERAGE}
+                max={MAX_COVERAGE}
+                step={0.1}
+                value={params.target_coverage_pct ?? DEFAULT_COVERAGE}
+                onChange={handleTargetChange}
+              />
+            </div>
+          )}
+
+          {(params.advanced_input_mode ?? "coverage") === "spacing" && (
+            <div className="space-y-2">
+              <Label htmlFor={axisDistanceId}>
+                <span data-lang="pl">Odstęp między punktami (mm)</span>
+                <span data-lang="en">Point spacing (mm)</span>
+              </Label>
+              <Input
+                id={axisDistanceId}
+                type="number"
+                min={MIN_AXIS_DISTANCE_MM}
+                max={MAX_AXIS_DISTANCE_MM}
+                step={0.1}
+                value={params.axis_distance_mm ?? DEFAULT_AXIS_DISTANCE_MM}
+                onChange={handleAxisDistanceChange}
+              />
+            </div>
+          )}
+
           <div className="space-y-2">
-            <Label htmlFor={targetId}>Pokrycie docelowe (%)</Label>
-            <Input
-              id={targetId}
-              type="number"
-              min={MIN_COVERAGE}
-              max={MAX_COVERAGE}
-              step={0.1}
-              value={params.target_coverage_pct ?? DEFAULT_COVERAGE}
-              onChange={handleTargetChange}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={angleStepId}>Krok kąta (°)</Label>
+            <Label htmlFor={angleStepId}>
+              <span data-lang="pl">Krok kąta (°)</span>
+              <span data-lang="en">Angle step (°)</span>
+            </Label>
             <Input
               id={angleStepId}
               type="number"
@@ -359,7 +494,17 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       )}
 
       <Button type="submit" disabled={generating} aria-busy={generating}>
-        {generating ? "Generowanie…" : "Generuj"}
+        {generating ? (
+          <>
+            <span data-lang="pl">Generowanie…</span>
+            <span data-lang="en">Generating…</span>
+          </>
+        ) : (
+          <>
+            <span data-lang="pl">Generuj</span>
+            <span data-lang="en">Generate</span>
+          </>
+        )}
       </Button>
     </form>
   );

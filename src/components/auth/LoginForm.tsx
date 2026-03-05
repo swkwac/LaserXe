@@ -11,7 +11,7 @@ const API_BASE =
     : "http://localhost:8000";
 
 const MESSAGE_LABELS: Record<string, string> = {
-  session_expired: "Sesja wygasła. Zaloguj się ponownie.",
+  session_expired: "Session expired. Please log in again.",
 };
 
 export interface LoginFormProps {
@@ -28,10 +28,10 @@ function parseErrorDetail(response: Response, body: unknown): string {
       return String((d[0] as { msg: string }).msg);
     }
   }
-  if (response.status === 401) return "Nieprawidłowy login lub hasło.";
-  if (response.status === 422) return "Wypełnij login i hasło.";
-  if (response.status >= 500) return "Błąd serwera. Spróbuj później.";
-  return "Błąd połączenia. Sprawdź sieć i spróbuj ponownie.";
+  if (response.status === 401) return "Invalid login or password.";
+  if (response.status === 422) return "Please fill in login and password.";
+  if (response.status >= 500) return "Server error. Please try again later.";
+  return "Connection error. Check your network and try again.";
 }
 
 function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSuccess }: LoginFormProps) {
@@ -52,7 +52,7 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
 
       const trimmedLogin = login.trim();
       if (!trimmedLogin || !password) {
-        setErrorMessage("Wypełnij login i hasło.");
+        setErrorMessage("Please fill in login and password.");
         return;
       }
 
@@ -79,7 +79,7 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
         if (user) onSuccess?.(user);
         window.location.href = redirectUrl;
       } catch {
-        setErrorMessage("Błąd połączenia. Sprawdź sieć i spróbuj ponownie.");
+        setErrorMessage("Connection error. Check your network and try again.");
       } finally {
         setIsSubmitting(false);
       }
@@ -110,7 +110,10 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
       )}
 
       <div className="space-y-2">
-        <Label htmlFor={loginId}>Login</Label>
+        <Label htmlFor={loginId}>
+          <span data-lang="pl">Login</span>
+          <span data-lang="en">Login</span>
+        </Label>
         <Input
           id={loginId}
           type="text"
@@ -122,7 +125,10 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor={passwordId}>Hasło</Label>
+        <Label htmlFor={passwordId}>
+          <span data-lang="pl">Hasło</span>
+          <span data-lang="en">Password</span>
+        </Label>
         <Input
           id={passwordId}
           type="password"
@@ -146,14 +152,28 @@ function LoginForm({ redirectUrl = "/images", message: messageParam = null, onSu
 
       <div className="flex flex-col gap-2">
         <Button type="submit" disabled={submitDisabled} aria-busy={isSubmitting}>
-          {isSubmitting ? "Logowanie…" : "Zaloguj"}
+          {isSubmitting ? (
+            <>
+              <span data-lang="pl">Logowanie…</span>
+              <span data-lang="en">Signing in…</span>
+            </>
+          ) : (
+            <>
+              <span data-lang="pl">Zaloguj</span>
+              <span data-lang="en">Log in</span>
+            </>
+          )}
         </Button>
         <Button type="button" variant="secondary" onClick={handleDemoClick} disabled={isSubmitting}>
-          Tryb demo
+          <span data-lang="pl">Tryb demo</span>
+          <span data-lang="en">Demo mode</span>
         </Button>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">Dane demo: user / 123</p>
+      <p className="text-center text-xs text-muted-foreground">
+        <span data-lang="pl">Dane demo: user / 123</span>
+        <span data-lang="en">Demo credentials: user / 123</span>
+      </p>
     </form>
   );
 }

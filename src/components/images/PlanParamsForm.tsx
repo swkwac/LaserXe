@@ -63,10 +63,13 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
       <fieldset
         id={algorithmFieldsetId}
         className="space-y-2"
-        aria-label="Algorytm generowania siatki"
+        aria-label="Grid generation algorithm"
         disabled={disabled}
       >
-        <span className="text-sm font-medium">Algorytm</span>
+        <span className="text-sm font-medium">
+          <span data-lang="pl">Algorytm</span>
+          <span data-lang="en">Algorithm</span>
+        </span>
         <div className="flex flex-col gap-2">
           {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- label wraps input + text; htmlFor/id link present */}
           <label htmlFor={`${algorithmFieldsetId}-simple`} className="flex items-start gap-2 cursor-pointer">
@@ -81,9 +84,13 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
               aria-describedby={`${algorithmFieldsetId}-simple-hint`}
             />
             <span>
-              <span className="font-medium">Prosty – siatka XY 800 µm</span>
+              <span className="font-medium">
+                <span data-lang="pl">Prosty – siatka XY 800 µm</span>
+                <span data-lang="en">Simple – XY grid 800 µm</span>
+              </span>
               <p id={`${algorithmFieldsetId}-simple-hint`} className="text-xs text-muted-foreground">
-                Punkty w jednakowych odstępach 800 µm, tylko wewnątrz masek.
+                <span data-lang="pl">Punkty w jednakowych odstępach 800 µm, tylko wewnątrz masek.</span>
+                <span data-lang="en">Spots at equal 800 µm spacing, only inside masks.</span>
               </p>
             </span>
           </label>
@@ -102,7 +109,8 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
             <span>
               <span className="font-medium">{getAdvancedAlgorithmLabel()}</span>
               <p id={`${algorithmFieldsetId}-advanced-hint`} className="text-xs text-muted-foreground">
-                Algorytm w trakcie rozwoju; pokrycie docelowe i średnice co 5°.
+                <span data-lang="pl">Algorytm w trakcie rozwoju; pokrycie docelowe i średnice co 5°.</span>
+                <span data-lang="en">Algorithm under development; target coverage and radii every 5°.</span>
               </p>
             </span>
           </label>
@@ -111,7 +119,10 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
 
       {algorithmMode === "simple" && (
         <div className="space-y-2">
-          <Label htmlFor={gridSpacingId}>Odstęp siatki (mm)</Label>
+          <Label htmlFor={gridSpacingId}>
+            <span data-lang="pl">Odstęp siatki (mm)</span>
+            <span data-lang="en">Grid spacing (mm)</span>
+          </Label>
           <Input
             id={gridSpacingId}
             type="number"
@@ -124,13 +135,21 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
             aria-describedby={`${gridSpacingId}-hint`}
           />
           <p id={`${gridSpacingId}-hint`} className="text-xs text-muted-foreground">
-            Zakres: {MIN_GRID_SPACING_MM}–{MAX_GRID_SPACING_MM} mm (domyślnie 0,8)
+            <span data-lang="pl">
+              Zakres: {MIN_GRID_SPACING_MM}–{MAX_GRID_SPACING_MM} mm (domyślnie 0,8)
+            </span>
+            <span data-lang="en">
+              Range: {MIN_GRID_SPACING_MM}–{MAX_GRID_SPACING_MM} mm (default 0.8)
+            </span>
           </p>
         </div>
       )}
 
       <div className="space-y-2">
-        <Label htmlFor={inputId}>Docelowe pokrycie (%)</Label>
+        <Label htmlFor={inputId}>
+          <span data-lang="pl">Docelowe pokrycie (%)</span>
+          <span data-lang="en">Target coverage (%)</span>
+        </Label>
         <Input
           id={inputId}
           type="number"
@@ -143,7 +162,12 @@ function PlanParamsForm({ value, onChange, disabled }: PlanParamsFormProps) {
           aria-describedby={`${inputId}-hint`}
         />
         <p id={`${inputId}-hint`} className="text-xs text-muted-foreground">
-          Zakres: {MIN_COVERAGE}–{MAX_COVERAGE} % (dotyczy algorytmu zaawansowanego)
+          <span data-lang="pl">
+            Zakres: {MIN_COVERAGE}–{MAX_COVERAGE} % (dotyczy algorytmu zaawansowanego)
+          </span>
+          <span data-lang="en">
+            Range: {MIN_COVERAGE}–{MAX_COVERAGE} % (applies to advanced algorithm)
+          </span>
         </p>
       </div>
     </div>

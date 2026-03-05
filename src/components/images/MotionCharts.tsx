@@ -159,9 +159,8 @@ function buildRotationalSpeedSeries(
   let maxValue = 0;
 
   if (segments && segments.length > 0) {
-    // Use finer sampling (20 ms) so short rotations (e.g. 5° ≈ 70 ms) are captured
-    // with multiple points, producing smooth ramps instead of thin spikes.
-    const dtSampleMs = 20;
+    // Use 1 ms sampling so short rotations are captured with maximum temporal resolution.
+    const dtSampleMs = 1;
     const nSamples = Math.max(1, Math.floor(totalDurationMs / dtSampleMs) + 1);
 
     for (let i = 0; i < nSamples; i++) {
@@ -192,7 +191,7 @@ function buildEmissionSeries(timeline: TimelineFrame[], totalDurationMs: number)
   if (timeline.length === 0) return null;
   if (timeline[0]?.t_ms == null) return null;
 
-  const dtSampleMs = 100;
+  const dtSampleMs = 1;
   const nSamples = Math.max(1, Math.floor(totalDurationMs / dtSampleMs) + 1);
 
   const points: SeriesPoint[] = [];

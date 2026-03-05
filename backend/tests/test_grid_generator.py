@@ -95,7 +95,8 @@ def test_generate_grid_advanced_basic() -> None:
     assert result.achieved_coverage_pct > 0
     assert result.params["aperture_type"] == "advanced"
     assert result.params["angle_step_deg"] == 5
-    assert result.params["axis_distance_mm"] is None
+    assert result.params["axis_distance_mm"] is not None
+    assert result.params["axis_distance_mm"] > 0
 
     R = 12.5
     for s in result.spots:
@@ -307,7 +308,42 @@ def test_api_generate_advanced_success(client_with_auth: TestClient) -> None:
     data = response.json()
     assert data["params"]["aperture_type"] == "advanced"
     assert data["params"]["angle_step_deg"] == 5
-    assert data["params"]["axis_distance_mm"] is None
+    assert data["params"]["axis_distance_mm"] is not None
+    assert data["spots_count"] >= 1
+
+
+def test_generate_grid_advanced_by_spacing() -> None:
+    """Advanced aperture: allow axis_distance_mm as input instead of coverage."""
+    result = generate_grid_advanced(
+        angle_step_deg=5,
+        spot_diameter_um=300,
+        target_coverage_pct=None,
+        axis_distance_mm=0.8,
+    )
+    assert result.spots_count >= 1
+    assert result.achieved_coverage_pct > 0
+    assert result.params["aperture_type"] == "advanced"
+    assert result.params["angle_step_deg"] == 5
+    assert result.params["axis_distance_mm"] is not None
+    assert result.params["axis_distance_mm"] > 0
+
+
+def test_api_generate_advanced_by_spacing(client_with_auth: TestClient) -> None:
+    """API: Advanced aperture accepts axis_distance_mm instead of coverage."""
+    response = client_with_auth.post(
+        "/api/grid-generator/generate",
+        json={
+            "aperture_type": "advanced",
+            "spot_diameter_um": 300,
+            "axis_distance_mm": 0.8,
+            "angle_step_deg": 5,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["params"]["aperture_type"] == "advanced"
+    assert data["params"]["angle_step_deg"] == 5
+    assert data["params"]["axis_distance_mm"] is not None
     assert data["spots_count"] >= 1
 
 

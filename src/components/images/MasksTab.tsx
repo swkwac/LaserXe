@@ -30,20 +30,20 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
           return;
         }
         if (res.status === 0) {
-          setError("Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000).");
+          setError("Cannot connect to API. Check that the backend is running (http://localhost:8000).");
         } else {
-          setError("Nie udało się załadować masek.");
+          setError("Failed to load masks.");
         }
         setMasks([]);
         return;
       }
       const data = (await res.json()) as MaskListResponseDto;
       setMasks(data.items ?? []);
-    } catch (err) {
-      if ((err as Error).message !== "Unauthorized") {
-        setError("Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany.");
-        setMasks([]);
-      }
+      } catch (err) {
+        if ((err as Error).message !== "Unauthorized") {
+          setError("Connection error. Make sure the backend is running (http://localhost:8000) and that you are logged in.");
+          setMasks([]);
+        }
     } finally {
       setLoading(false);
     }
@@ -82,12 +82,12 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
     async (newWidthMm: number) => {
       setMaskError(null);
       if (!Number.isFinite(newWidthMm) || newWidthMm <= 0) {
-        setMaskError("Nowa szerokość obrazu musi być większa od 0 mm.");
+        setMaskError("New image width must be greater than 0 mm.");
         return;
       }
       const oldWidthMm = image.width_mm;
       if (oldWidthMm <= 0) {
-        setMaskError("Obecna skala jest nieprawidłowa.");
+        setMaskError("Current scale is invalid.");
         return;
       }
       const scaleFactor = newWidthMm / oldWidthMm;
@@ -101,7 +101,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          const detail = typeof data?.detail === "string" ? data.detail : "Nie udało się zapisać skali.";
+          const detail = typeof data?.detail === "string" ? data.detail : "Failed to save scale.";
           setMaskError(detail);
           return;
         }
@@ -156,7 +156,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         });
         if (!res.ok) {
           if (res.status === 0) {
-            setMaskError("Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS.");
+            setMaskError("Cannot connect to API. Check that the backend is running (http://localhost:8000) and CORS is configured.");
             return;
           }
           const data = await res.json().catch(() => ({}));
@@ -164,8 +164,8 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
             typeof data?.detail === "string"
               ? data.detail
               : res.status === 400
-                ? "Maska poniżej 3% apertury – odrzucona."
-                : "Nie udało się zapisać maski.";
+                ? "Mask below 3% of aperture – rejected."
+                : "Failed to save mask.";
           setMaskError(msg);
           return;
         }
@@ -181,7 +181,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
           setMaskError(
-            "Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany."
+            "Connection error. Make sure the backend is running (http://localhost:8000) and that you are logged in."
           );
         }
       } finally {
@@ -201,13 +201,13 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
           method: "DELETE",
         });
         if (!res.ok) {
-          setMaskError("Nie udało się usunąć maski.");
+          setMaskError("Failed to delete mask.");
           return;
         }
         setMasks((prev) => prev.filter((m) => m.id !== maskId));
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
-          setMaskError("Błąd połączenia.");
+          setMaskError("Connection error.");
         }
       } finally {
         setSaving(false);
@@ -231,7 +231,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         });
         if (!res.ok) {
           if (res.status === 0) {
-            setMaskError("Brak połączenia z API. Sprawdź, czy backend działa (http://localhost:8000) i CORS.");
+            setMaskError("Cannot connect to API. Check that the backend is running (http://localhost:8000) and CORS is configured.");
             return;
           }
           const data = await res.json().catch(() => ({}));
@@ -239,8 +239,8 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
             typeof data?.detail === "string"
               ? data.detail
               : res.status === 400
-                ? "Maska poniżej 3% apertury – odrzucona."
-                : "Nie udało się zapisać zmian.";
+                ? "Mask below 3% of aperture – rejected."
+                : "Failed to save changes.";
           setMaskError(msg);
           return;
         }
@@ -248,7 +248,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
         try {
           updated = (await res.json()) as MaskDto;
         } catch {
-          setMaskError("Nieprawidłowa odpowiedź serwera po zapisie maski.");
+          setMaskError("Invalid server response when saving mask.");
           return;
         }
         setMasks((prev) => prev.map((m) => (m.id === maskId ? updated : m)));
@@ -257,7 +257,7 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
           setMaskError(
-            "Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany."
+            "Connection error. Make sure the backend is running (http://localhost:8000) and that you are logged in."
           );
         }
       } finally {
@@ -268,10 +268,18 @@ function MasksTab({ imageId, image, onImageUpdate, isDemo }: MasksTabProps) {
   );
 
   return (
-    <div className="space-y-6" aria-label="Zakładka Maski">
+    <div className="space-y-6" aria-label="Masks tab">
       <div className="laserme-card">
-        <h2 className="text-sm font-medium mb-2">Obszar roboczy – maski</h2>
-        {loading && <p className="text-sm text-muted-foreground">Ładowanie masek…</p>}
+        <h2 className="text-sm font-medium mb-2">
+          <span data-lang="pl">Obszar roboczy – maski</span>
+          <span data-lang="en">Workspace – masks</span>
+        </h2>
+        {loading && (
+          <p className="text-sm text-muted-foreground">
+            <span data-lang="pl">Ładowanie masek…</span>
+            <span data-lang="en">Loading masks…</span>
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive mb-2">
             {error}

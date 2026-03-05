@@ -49,6 +49,23 @@ export function AdvancedMotionParamsForm({
   breakdown,
   disabled = false,
 }: AdvancedMotionParamsFormProps) {
+  const applyPreset = React.useCallback(
+    (preset: "1.0" | "2.0") => {
+      const next = { ...value };
+      if (preset === "1.0") {
+        // Preset 1.0: v_max = 200 mm/s, a = 60 m/s² ≈ 60000 mm/s².
+        next.linearSpeedMmPerS = 200;
+        next.linearAccelMmPerS2 = 60_000;
+      } else {
+        // Preset 2.0: v_max = 1000 mm/s, a = 200 m/s² ≈ 200000 mm/s².
+        next.linearSpeedMmPerS = 1000;
+        next.linearAccelMmPerS2 = 200_000;
+      }
+      onChange(next);
+    },
+    [value, onChange]
+  );
+
   const handleChange = React.useCallback(
     (field: keyof AdvancedMotionParams) => (e: React.ChangeEvent<HTMLInputElement>) => {
       const num = parseFloat(e.target.value);
@@ -86,71 +103,87 @@ export function AdvancedMotionParamsForm({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs text-muted-foreground">Czas:</span>
-          <strong className="text-sm" title="Szacowany czas leczenia">
-            {formatDurationSeconds(totalDurationMs)}
-          </strong>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={value.fireInMotionEnabled}
+            onChange={(e) =>
+              onChange({ ...value, fireInMotionEnabled: e.target.checked })
+            }
+            disabled={disabled}
+            className="h-3 w-3 rounded border border-input"
+          />
+          <span>
+            <span data-lang="pl">Emisja w ruchu</span>
+            <span data-lang="en">Emission in motion</span>
+          </span>
+        </label>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground">
+            <span data-lang="pl">Preset:</span>
+            <span data-lang="en">Preset:</span>
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => applyPreset("1.0")}
+          >
+            1.0
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => applyPreset("2.0")}
+          >
+            2.0
+          </Button>
         </div>
-        {breakdown && breakdown.totalMs > 0 && (
-          <div className="text-[10px] text-muted-foreground" title="Czynniki limitujące czas">
-            Emisja: {formatBreakdownItem(breakdown.dwellMs, breakdown.totalMs)} ·{" "}
-            Ruch: {formatBreakdownItem(breakdown.moveMs, breakdown.totalMs)} ·{" "}
-            Obrot: {formatBreakdownItem(breakdown.rotateMs, breakdown.totalMs)}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={value.fireInMotionEnabled ? "default" : "outline"}
-          onClick={() =>
-            onChange({ ...value, fireInMotionEnabled: !value.fireInMotionEnabled })
-          }
-          disabled={disabled}
-        >
-          Emisja w ruchu
-        </Button>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-border bg-white/70 px-2 py-1">
         <table className="w-full text-xs">
           <tbody>
-            <tr>
-              <td className="py-0.5 pr-2 align-middle">
-                <Label htmlFor="motion-min-speed" className="whitespace-nowrap">
-                  Min. prędkość emisji v<sub>emit</sub> (mm/s)
-                </Label>
-              </td>
-              <td className="py-0.5 align-middle">
-                <Input
-                  id="motion-min-speed"
-                  type="number"
-                  min={MIN_EMIT_SPEED}
-                  max={MAX_EMIT_SPEED}
-                  step={1}
-                  value={value.minEmissionSpeedMmPerS}
-                  onChange={handleChange("minEmissionSpeedMmPerS")}
-                  disabled={disabled || !value.fireInMotionEnabled}
-                  className={`h-7 w-24 text-xs ${emitSpeedTooHigh ? "border-red-500" : ""}`}
-                  aria-invalid={emitSpeedTooHigh}
-                />
-              </td>
-            </tr>
-            {emitSpeedTooHigh && (
-              <tr>
-                <td className="py-0.5 pr-2 align-middle" />
-                <td className="py-0.5 align-middle text-[10px] text-red-500">
-                  Min. prędkość emisji v
-                  <sub>emit</sub> musi być mniejsza niż prędkość liniowa v
-                  <sub>max</sub>. Zmniejsz v
-                  <sub>emit</sub> lub zwiększ v
-                  <sub>max</sub>.
-                </td>
-              </tr>
+            {value.fireInMotionEnabled && (
+              <>
+                <tr>
+                  <td className="py-0.5 pr-2 align-middle">
+                    <Label htmlFor="motion-min-speed" className="whitespace-nowrap">
+                      Min. prędkość emisji v<sub>emit</sub> (mm/s)
+                    </Label>
+                  </td>
+                  <td className="py-0.5 align-middle">
+                    <Input
+                      id="motion-min-speed"
+                      type="number"
+                      min={MIN_EMIT_SPEED}
+                      max={MAX_EMIT_SPEED}
+                      step={1}
+                      value={value.minEmissionSpeedMmPerS}
+                      onChange={handleChange("minEmissionSpeedMmPerS")}
+                      disabled={disabled}
+                      className={`h-7 w-24 text-xs ${emitSpeedTooHigh ? "border-red-500" : ""}`}
+                      aria-invalid={emitSpeedTooHigh}
+                    />
+                  </td>
+                </tr>
+                {emitSpeedTooHigh && (
+                  <tr>
+                    <td className="py-0.5 pr-2 align-middle" />
+                    <td className="py-0.5 align-middle text-[10px] text-red-500">
+                      Min. prędkość emisji v
+                      <sub>emit</sub> musi być mniejsza niż prędkość liniowa v
+                      <sub>max</sub>. Zmniejsz v
+                      <sub>emit</sub> lub zwiększ v
+                      <sub>max</sub>.
+                    </td>
+                  </tr>
+                )}
+              </>
             )}
             <tr>
               <td className="py-0.5 pr-2 align-middle">

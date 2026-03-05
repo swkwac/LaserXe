@@ -10,17 +10,23 @@ const initialIterationId = initialIterationParam ? parseInt(initialIterationPara
 const initialDemo = Astro.url.searchParams.get("demo") === "1";
 ---
 
-<Layout title={`Szczegóły obrazu ${isNaN(imageId) ? "" : `#${imageId}`} – LaserXe`}>
+<Layout title={`Image details ${isNaN(imageId) ? "" : `#${imageId}`} – LaserXe`}>
   <main class="min-h-full px-4 py-6" role="main">
     <nav class="mb-4 text-sm text-muted-foreground" aria-label="Breadcrumb">
-      <a href="/images" class="hover:text-foreground underline-offset-4 hover:underline"> Lista obrazów </a>
+      <a href="/images" class="hover:text-foreground underline-offset-4 hover:underline">
+        <span data-lang="pl">Lista obrazów</span>
+        <span data-lang="en">Images list</span>
+      </a>
       {
         !isNaN(imageId) && (
           <>
             <span class="mx-2" aria-hidden="true">
               /
             </span>
-            <span aria-current="page">Szczegóły obrazu #{imageId}</span>
+            <span aria-current="page">
+              <span data-lang="pl">Szczegóły obrazu #{imageId}</span>
+              <span data-lang="en">Image details #{imageId}</span>
+            </span>
           </>
         )
       }
@@ -36,9 +42,13 @@ const initialDemo = Astro.url.searchParams.get("demo") === "1";
         />
       ) : (
         <>
-          <p class="text-destructive">Nieprawidłowy identyfikator obrazu.</p>
+          <p class="text-destructive">
+            <span data-lang="pl">Nieprawidłowy identyfikator obrazu.</span>
+            <span data-lang="en">Invalid image identifier.</span>
+          </p>
           <a href="/images" class="mt-2 inline-block text-sm underline-offset-4 hover:underline">
-            Powrót do listy
+            <span data-lang="pl">Powrót do listy</span>
+            <span data-lang="en">Back to list</span>
           </a>
         </>
       )

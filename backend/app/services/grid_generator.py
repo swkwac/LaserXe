@@ -215,29 +215,46 @@ def generate_grid_simple(
 def generate_grid_advanced(
     angle_step_deg: int,
     spot_diameter_um: int,
-    target_coverage_pct: float,
+    target_coverage_pct: float | None = None,
+    axis_distance_mm: float | None = None,
 ) -> GridGeneratorResult:
     """
     Generate grid for advanced aperture (25 mm diameter circle).
 
     - Origin: center (0, 0); radius 12.5 mm.
     - Diameter lines at 0°, angle_step°, 2×angle_step°, … up to 175°.
-    - Candidate-based selection with target_coverage_pct.
+    - Candidate-based selection with target_coverage_pct or fixed spacing.
     - Reuses plan_grid logic with full-aperture circle mask.
     """
+    if target_coverage_pct is None and axis_distance_mm is None:
+        raise ValueError(
+            "Provide either target_coverage_pct or axis_distance_mm for advanced aperture"
+        )
+    if target_coverage_pct is not None and axis_distance_mm is not None:
+        raise ValueError(
+            "Provide only one: target_coverage_pct or axis_distance_mm for advanced aperture"
+        )
+
     spot_diameter_mm = spot_diameter_um / 1000.0
     circle_verts = _circle_polygon(0.0, 0.0, APERTURE_RADIUS_MM)
     full_aperture_mask = MaskPolygon(mask_id=0, vertices=circle_verts, mask_label=None)
 
     plan = generate_plan(
         masks=[full_aperture_mask],
-        target_coverage_pct=target_coverage_pct,
+        target_coverage_pct=target_coverage_pct or 0.0,
         coverage_per_mask=None,
         image_width_mm=25.0,
         angle_step_deg=angle_step_deg,
         spot_diameter_mm=spot_diameter_mm,
         use_unison_grid=True,
+        grid_spacing_mm=axis_distance_mm,
     )
+
+    # Estimate effective radial spacing (distance between rings) from plan spots.
+    spacing_est: float | None = None
+    radii = sorted({abs(s.t_mm) for s in plan.spots if abs(s.t_mm) > 1e-6})
+    if radii:
+        spacing_est = radii[0]
 
     spots: list[GridSpot] = []
     for seq_idx, s in enumerate(plan.spots):
@@ -252,6 +269,7 @@ def generate_grid_advanced(
         )
 
     achieved = plan.achieved_coverage_pct or 0.0
+    used_spacing = spacing_est
 
     return GridGeneratorResult(
         spots=spots,
@@ -260,8 +278,9 @@ def generate_grid_advanced(
         params={
             "aperture_type": "advanced",
             "spot_diameter_um": spot_diameter_um,
-            "target_coverage_pct": target_coverage_pct,
-            "axis_distance_mm": None,
+            # Echo actual achieved coverage and effective spacing for UI display.
+            "target_coverage_pct": round(achieved, 2),
+            "axis_distance_mm": round(used_spacing, 4) if used_spacing is not None else None,
             "angle_step_deg": angle_step_deg,
         },
     )
@@ -288,5 +307,18 @@ def generate_grid(
     if aperture_type == "advanced":
         if angle_step_deg is None:
             raise ValueError("angle_step_deg required for advanced aperture")
-        return generate_grid_advanced(angle_step_deg, spot_diameter_um, target_coverage_pct)
+        if target_coverage_pct is None and axis_distance_mm is None:
+            raise ValueError(
+                "Provide either target_coverage_pct or axis_distance_mm for advanced aperture"
+            )
+        if target_coverage_pct is not None and axis_distance_mm is not None:
+            raise ValueError(
+                "Provide only one: target_coverage_pct or axis_distance_mm"
+            )
+        return generate_grid_advanced(
+            angle_step_deg,
+            spot_diameter_um,
+            target_coverage_pct=target_coverage_pct,
+            axis_distance_mm=axis_distance_mm,
+        )
     raise ValueError(f"Unknown aperture_type: {aperture_type}")

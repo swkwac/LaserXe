@@ -30,10 +30,18 @@ class GridGeneratorRequestSchema(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def advanced_requires_coverage_and_angle(self) -> "GridGeneratorRequestSchema":
+    def advanced_requires_one_of_and_angle(self) -> "GridGeneratorRequestSchema":
         if self.aperture_type == "advanced":
-            if self.target_coverage_pct is None:
-                raise ValueError("target_coverage_pct required for advanced aperture")
+            has_coverage = self.target_coverage_pct is not None
+            has_spacing = self.axis_distance_mm is not None
+            if has_coverage and has_spacing:
+                raise ValueError(
+                    "Provide only one: target_coverage_pct or axis_distance_mm for advanced aperture"
+                )
+            if not has_coverage and not has_spacing:
+                raise ValueError(
+                    "Provide either target_coverage_pct or axis_distance_mm for advanced aperture"
+                )
             if self.angle_step_deg is None:
                 raise ValueError("angle_step_deg required for advanced aperture")
         return self

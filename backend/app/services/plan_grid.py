@@ -727,6 +727,7 @@ def generate_plan(
     angle_step_deg: int | None = None,
     spot_diameter_mm: float | None = None,
     use_unison_grid: bool = False,
+    grid_spacing_mm: float | None = None,
 ) -> PlanResult:
     """
     Generate spot grid and emission sequence.
@@ -776,11 +777,6 @@ def generate_plan(
     # Unison grid: one global spacing for regular concentric rings + radial lines (reference image).
     # Used for full-aperture (e.g. grid generator). Produces uniform t = -R, -R+s, ..., +R per diameter.
     if use_unison_grid:
-        # Full-aperture target count from aperture area (not polygon area approximation).
-        total_target = max(
-            1, int(round((target_coverage_pct / 100.0) * APERTURE_AREA_MM2 / spot_area_use))
-        )
-
         def _unison_emission_key(s: tuple) -> tuple:
             theta_deg = s[2]
             # theta_deg is already in [0,180) for this mode
@@ -788,20 +784,14 @@ def generate_plan(
             t_sort = s[3] if theta_k % 2 == 0 else -s[3]
             return (theta_k, t_sort)
 
-        # Binary search on spacing to hit total_target, using polar rings + diameter subsampling
-        low = min_dist_use
-        high = 10.0 * min_dist_use
-        tolerance = max(1, int(0.02 * total_target))
-        best: list[tuple[float, float, float, float, int | None]] = []
-
-        for _ in range(22):
-            mid = (low + high) / 2.0
-            mid = max(mid, min_dist_use)
+        if grid_spacing_mm is not None:
+            # Use explicit global spacing: build candidates once and filter overlaps.
+            spacing = max(grid_spacing_mm, MIN_DIST_MM)
             cand = _build_candidates_polar_uniform_constrained(
                 cx,
                 cy,
                 angles_ordered=angles_ordered,
-                spacing_mm=mid,
+                spacing_mm=spacing,
                 r_max=APERTURE_RADIUS_MM,
                 angle_step_deg=angle_step,
                 mask_id=included[0].mask_id if included else 0,
@@ -809,21 +799,51 @@ def generate_plan(
             )
             cand.sort(key=_unison_emission_key)
             filtered = _filter_overlaps_in_emission_order(cand, min_dist_use)
+            all_spots = [
+                (s[0], s[1], s[2], s[3], s[4] if s[4] is not None else 0) for s in filtered
+            ]
+        else:
+            # Full-aperture target count from aperture area (not polygon area approximation).
+            total_target = max(
+                1, int(round((target_coverage_pct / 100.0) * APERTURE_AREA_MM2 / spot_area_use))
+            )
 
-            if not best or abs(len(filtered) - total_target) < abs(len(best) - total_target):
-                best = filtered
+            # Binary search on spacing to hit total_target, using polar rings + diameter subsampling
+            low = min_dist_use
+            high = 10.0 * min_dist_use
+            tolerance = max(1, int(0.02 * total_target))
+            best: list[tuple[float, float, float, float, int | None]] = []
 
-            if abs(len(filtered) - total_target) <= tolerance:
-                best = filtered
-                break
-            if len(filtered) > total_target:
-                low = mid
-            else:
-                high = mid
+            for _ in range(22):
+                mid = (low + high) / 2.0
+                mid = max(mid, min_dist_use)
+                cand = _build_candidates_polar_uniform_constrained(
+                    cx,
+                    cy,
+                    angles_ordered=angles_ordered,
+                    spacing_mm=mid,
+                    r_max=APERTURE_RADIUS_MM,
+                    angle_step_deg=angle_step,
+                    mask_id=included[0].mask_id if included else 0,
+                    mask_vertices=None,
+                )
+                cand.sort(key=_unison_emission_key)
+                filtered = _filter_overlaps_in_emission_order(cand, min_dist_use)
 
-        all_spots = [
-            (s[0], s[1], s[2], s[3], s[4] if s[4] is not None else 0) for s in best
-        ]
+                if not best or abs(len(filtered) - total_target) < abs(len(best) - total_target):
+                    best = filtered
+
+                if abs(len(filtered) - total_target) <= tolerance:
+                    best = filtered
+                    break
+                if len(filtered) > total_target:
+                    low = mid
+                else:
+                    high = mid
+
+            all_spots = [
+                (s[0], s[1], s[2], s[3], s[4] if s[4] is not None else 0) for s in best
+            ]
     else:
         # Polar uniform approach (same as grid generator): chord-based diameter subsampling,
         # per-mask binary search on spacing, greedy selection with avoid_xy across masks.

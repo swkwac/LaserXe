@@ -25,19 +25,25 @@ function Pagination({ page, page_size, total, onPageChange, onPageSizeChange }: 
   }, [canNext, page, onPageChange]);
 
   return (
-    <nav className="flex flex-wrap items-center gap-2" aria-label="Nawigacja paginacji">
+    <nav className="flex flex-wrap items-center gap-2" aria-label="Pagination navigation">
       <Button
         type="button"
         variant="outline"
         size="sm"
         onClick={handlePrev}
         disabled={!canPrev}
-        aria-label="Poprzednia strona"
+        aria-label="Previous page"
       >
-        Poprzednia
+        <span data-lang="pl">Poprzednia</span>
+        <span data-lang="en">Previous</span>
       </Button>
       <span className="text-sm text-muted-foreground" aria-live="polite">
-        Strona {page} z {lastPage} (łącznie {total} pozycji)
+        <span data-lang="pl">
+          Strona {page} z {lastPage} (łącznie {total} pozycji)
+        </span>
+        <span data-lang="en">
+          Page {page} of {lastPage} (total {total} items)
+        </span>
       </span>
       <Button
         type="button"
@@ -45,16 +51,17 @@ function Pagination({ page, page_size, total, onPageChange, onPageSizeChange }: 
         size="sm"
         onClick={handleNext}
         disabled={!canNext}
-        aria-label="Następna strona"
+        aria-label="Next page"
       >
-        Następna
+        <span data-lang="pl">Następna</span>
+        <span data-lang="en">Next</span>
       </Button>
       {onPageSizeChange && (
         <select
           className="h-9 rounded-xl border-2 border-input bg-white px-2 text-sm focus:border-primary"
           value={page_size}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
-          aria-label="Liczba na stronie"
+          aria-label="Items per page"
         >
           {PAGE_SIZES.map((size) => (
             <option key={size} value={size}>

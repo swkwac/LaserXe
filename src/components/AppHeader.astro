@@ -13,24 +13,77 @@ import LogoutButton from "./auth/LogoutButton";
   <div class="flex w-full items-center justify-between">
     <nav class="flex items-center gap-4" aria-label="Główne">
       <a
-        href="/images"
+        href="/grid-generator"
         class="text-lg font-semibold tracking-tight text-white hover:underline"
       >
-        LaserXe
-      </a>
-      <a
-        href="/images"
-        class="text-white/90 hover:text-white hover:underline"
-      >
-        Obrazy
+        <span data-lang="pl">LaserXe</span>
+        <span data-lang="en">LaserXe</span>
       </a>
       <a
         href="/grid-generator"
         class="text-white/90 hover:text-white hover:underline"
       >
-        Generator siatki
+        <span data-lang="pl">Generator siatki</span>
+        <span data-lang="en">Grid generator</span>
+      </a>
+      <a
+        href="/images"
+        class="text-white/90 hover:text-white hover:underline"
+      >
+        <span data-lang="pl">Obrazy</span>
+        <span data-lang="en">Images</span>
       </a>
     </nav>
-    <LogoutButton client:load className="text-white hover:bg-white/20 hover:text-white" />
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1 text-sm text-white/90">
+        <button
+          type="button"
+          class="hover:text-white"
+          data-lang-toggle="en"
+        >
+          EN
+        </button>
+        <span class="text-white/60">/</span>
+        <button
+          type="button"
+          class="hover:text-white"
+          data-lang-toggle="pl"
+        >
+          PL
+        </button>
+      </div>
+      <LogoutButton client:load className="text-white hover:bg-white/20 hover:text-white" />
+    </div>
   </div>
 </header>
+
+<script>
+  if (typeof window !== "undefined") {
+    const setLang = (lang) => {
+      if (lang !== "en" && lang !== "pl") return;
+      document.documentElement.setAttribute("data-lang", lang);
+      document.documentElement.setAttribute("lang", lang);
+      try {
+        window.localStorage.setItem("laserxe-lang", lang);
+      } catch (_) {
+        // ignore storage errors
+      }
+    };
+
+    // Initialize from localStorage (fallback to "en")
+    try {
+      const stored = window.localStorage.getItem("laserxe-lang");
+      const initial = stored === "pl" || stored === "en" ? stored : "en";
+      setLang(initial);
+    } catch (_) {
+      setLang("en");
+    }
+
+    document.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-lang-toggle]");
+      if (!target) return;
+      const lang = target.getAttribute("data-lang-toggle");
+      setLang(lang);
+    });
+  }
+</script>

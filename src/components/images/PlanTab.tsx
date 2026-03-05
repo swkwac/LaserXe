@@ -88,7 +88,7 @@ function PlanTab({
       onIterationSelected?.(iteration.id);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") {
-        setError(err instanceof Error ? err.message : "Błąd połączenia.");
+        setError(err instanceof Error ? err.message : "Connection error.");
       }
     } finally {
       setGenerating(false);
@@ -107,7 +107,7 @@ function PlanTab({
         onIterationUpdated?.();
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
-          setError(err instanceof Error ? err.message : "Błąd połączenia.");
+          setError(err instanceof Error ? err.message : "Connection error.");
         }
       }
     },
@@ -149,12 +149,25 @@ function PlanTab({
   const canReject = selectedIteration && selectedIteration.status === "draft";
 
   return (
-    <div className="space-y-6" aria-label="Zakładka Plan">
+    <div className="space-y-6" aria-label="Plan tab">
       <div className="laserme-card">
-        <h2 className="text-sm font-medium mb-3">Parametry planu</h2>
+        <h2 className="text-sm font-medium mb-3">
+          <span data-lang="pl">Parametry planu</span>
+          <span data-lang="en">Plan parameters</span>
+        </h2>
         <PlanParamsForm value={params} onChange={setParams} disabled={generating} />
         <Button type="button" className="mt-4" onClick={handleGenerate} disabled={generating} aria-busy={generating}>
-          {generating ? "Generowanie…" : "Generuj plan"}
+          {generating ? (
+            <>
+              <span data-lang="pl">Generowanie…</span>
+              <span data-lang="en">Generating…</span>
+            </>
+          ) : (
+            <>
+              <span data-lang="pl">Generuj plan</span>
+              <span data-lang="en">Generate plan</span>
+            </>
+          )}
         </Button>
       </div>
 
@@ -169,19 +182,28 @@ function PlanTab({
 
       {selectedIteration && (
         <div className="laserme-card space-y-4">
-          <h2 className="text-sm font-medium mb-2">Metryki (ostatnia iteracja)</h2>
+          <h2 className="text-sm font-medium mb-2">
+            <span data-lang="pl">Metryki (ostatnia iteracja)</span>
+            <span data-lang="en">Metrics (latest iteration)</span>
+          </h2>
           <dl className="grid grid-cols-2 gap-2 text-sm">
-            <dt className="text-muted-foreground">Algorytm</dt>
+            <dt className="text-muted-foreground">
+              <span data-lang="pl">Algorytm</span>
+              <span data-lang="en">Algorithm</span>
+            </dt>
             <dd>
               {selectedIteration.params_snapshot?.algorithm_mode === "simple"
-                ? "Prosty"
+                ? "Simple"
                 : selectedIteration.params_snapshot?.algorithm_mode === "advanced"
                   ? getAdvancedAlgorithmLabel()
                   : "—"}
             </dd>
             {selectedIteration.params_snapshot?.algorithm_mode === "simple" && (
               <>
-                <dt className="text-muted-foreground">Odstęp siatki</dt>
+                <dt className="text-muted-foreground">
+                  <span data-lang="pl">Odstęp siatki</span>
+                  <span data-lang="en">Grid spacing</span>
+                </dt>
                 <dd>
                   {selectedIteration.params_snapshot?.grid_spacing_mm != null
                     ? `${selectedIteration.params_snapshot.grid_spacing_mm} mm`
@@ -189,14 +211,29 @@ function PlanTab({
                 </dd>
               </>
             )}
-            <dt className="text-muted-foreground">Pokrycie docelowe</dt>
+            <dt className="text-muted-foreground">
+              <span data-lang="pl">Pokrycie docelowe</span>
+              <span data-lang="en">Target coverage</span>
+            </dt>
             <dd>{selectedIteration.target_coverage_pct ?? "—"} %</dd>
-            <dt className="text-muted-foreground">Pokrycie osiągnięte</dt>
+            <dt className="text-muted-foreground">
+              <span data-lang="pl">Pokrycie osiągnięte</span>
+              <span data-lang="en">Achieved coverage</span>
+            </dt>
             <dd>{selectedIteration.achieved_coverage_pct ?? "—"} %</dd>
-            <dt className="text-muted-foreground">Liczba punktów</dt>
+            <dt className="text-muted-foreground">
+              <span data-lang="pl">Liczba punktów</span>
+              <span data-lang="en">Number of spots</span>
+            </dt>
             <dd>{selectedIteration.spots_count ?? "—"}</dd>
-            <dt className="text-muted-foreground">Plan poprawny</dt>
-            <dd>{selectedIteration.plan_valid ? "Tak" : "Nie"}</dd>
+            <dt className="text-muted-foreground">
+              <span data-lang="pl">Plan poprawny</span>
+              <span data-lang="en">Plan valid</span>
+            </dt>
+            <dd>
+              <span data-lang="pl">{selectedIteration.plan_valid ? "Tak" : "Nie"}</span>
+              <span data-lang="en">{selectedIteration.plan_valid ? "Yes" : "No"}</span>
+            </dd>
           </dl>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -205,7 +242,8 @@ function PlanTab({
               disabled={!canAccept}
               aria-disabled={!canAccept}
             >
-              Akceptuj
+              <span data-lang="pl">Akceptuj</span>
+              <span data-lang="en">Accept</span>
             </Button>
             <Button
               type="button"
@@ -214,29 +252,42 @@ function PlanTab({
               disabled={!canReject}
               aria-disabled={!canReject}
             >
-              Odrzuć
+              <span data-lang="pl">Odrzuć</span>
+              <span data-lang="en">Reject</span>
             </Button>
             <Button type="button" variant="outline" onClick={() => handleExportJson(selectedIteration.id)}>
-              Eksport JSON
+              <span data-lang="pl">Eksport JSON</span>
+              <span data-lang="en">Export JSON</span>
             </Button>
             <Button type="button" variant="outline" onClick={() => handleExportCsv(selectedIteration.id)}>
-              Pobierz CSV (spoty)
+              <span data-lang="pl">Pobierz CSV (spoty)</span>
+              <span data-lang="en">Download CSV (spots)</span>
             </Button>
             <Button type="button" variant="outline" onClick={() => handleExportImage(selectedIteration.id, "png")}>
-              Eksport PNG
+              <span data-lang="pl">Eksport PNG</span>
+              <span data-lang="en">Export PNG</span>
             </Button>
             <Button type="button" variant="outline" onClick={() => handleExportImage(selectedIteration.id, "jpg")}>
-              Eksport JPG
+              <span data-lang="pl">Eksport JPG</span>
+              <span data-lang="en">Export JPG</span>
             </Button>
           </div>
           {previewImageUrl && image.width_mm <= 0 && (
             <p className="mt-4 text-sm text-muted-foreground">
-              Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć podgląd planu.
+              <span data-lang="pl">
+                Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć podgląd planu.
+              </span>
+              <span data-lang="en">
+                Calibrate image scale in the Masks tab (“Calibrate scale” tool) to see the plan preview.
+              </span>
             </p>
           )}
           {previewImageUrl && image.width_mm > 0 && (
             <div className="mt-4">
-              <h3 className="text-sm font-medium mb-2">Podgląd planu (overlay punktów)</h3>
+              <h3 className="text-sm font-medium mb-2">
+                <span data-lang="pl">Podgląd planu (overlay punktów)</span>
+                <span data-lang="en">Plan preview (spot overlay)</span>
+              </h3>
               {selectedIteration?.params_snapshot?.algorithm_mode && (
                 <div className="mb-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                   {selectedIteration.params_snapshot.algorithm_mode === "simple" && (
@@ -247,7 +298,10 @@ function PlanTab({
                         onChange={(e) => setShowSimpleAxes(e.target.checked)}
                         className="rounded border border-input"
                       />
-                      <span>Linie ruchu XY</span>
+                      <span>
+                        <span data-lang="pl">Linie ruchu XY</span>
+                        <span data-lang="en">XY motion lines</span>
+                      </span>
                     </label>
                   )}
                   {selectedIteration.params_snapshot.algorithm_mode === "advanced" && (

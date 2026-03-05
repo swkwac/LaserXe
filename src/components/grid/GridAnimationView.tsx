@@ -221,62 +221,49 @@ export function GridAnimationView({ params, spots }: GridAnimationViewProps) {
   const offsetX = (size.w - plotSize) / 2;
   const offsetY = (size.h - plotSize) / 2;
   const currentSpeedMmPerS = frame?.v_mm_per_s ?? null;
+  const formattedTotalTime = React.useMemo(() => {
+    const s = totalDurationMs / 1000;
+    const decimals = s >= 1 ? 2 : s >= 0.1 ? 3 : 4;
+    return `${s.toFixed(decimals)} s`;
+  }, [totalDurationMs]);
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Sterowanie animacją">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={handlePlay} disabled={playing}>
-            Odtwórz
+      <div className="flex justify-center">
+        <div className="flex items-center gap-3 rounded-full border border-border/70 bg-white/80 px-3 py-1 shadow-sm">
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={handlePlay}
+            disabled={playing}
+            className="h-8 w-8 rounded-full p-0"
+            aria-label="Play animation"
+          >
+            <span aria-hidden>▶</span>
           </Button>
-          <Button size="sm" variant="outline" onClick={handlePause} disabled={!playing}>
-            Wstrzymaj
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={handlePause}
+            disabled={!playing}
+            className="h-8 w-8 rounded-full p-0"
+            aria-label="Pause animation"
+          >
+            <span aria-hidden>⏸</span>
           </Button>
-          <Button size="sm" variant="outline" onClick={handleReset}>
-            Reset
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={handleReset}
+            className="h-8 w-8 rounded-full p-0"
+            aria-label="Reset animation"
+          >
+            <span aria-hidden>⏲</span>
           </Button>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            Czas: {formattedTotalTime}
+          </span>
         </div>
-        {(isAdvanced || isSimple) && (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowConfig((prev) => !prev)}
-              >
-                Konfiguracja
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowCharts((prev) => !prev)}
-              >
-                Wykresy prędkości
-              </Button>
-              <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={showSmears}
-                  onChange={(e) => setShowSmears(e.target.checked)}
-                  className="h-3 w-3 rounded border border-input"
-                />
-                <span className="whitespace-nowrap">Smugi emisji</span>
-              </label>
-              {showConfig && (
-                <AdvancedMotionParamsForm
-                  value={motionParams}
-                  onChange={setMotionParams}
-                  totalDurationMs={totalDurationMs}
-                  breakdown={breakdown}
-                />
-              )}
-            </div>
-            <div className="text-xs text-muted-foreground ml-auto">
-              Prędkość wózka:{" "}
-              {currentSpeedMmPerS != null ? `${currentSpeedMmPerS.toFixed(1)} mm/s` : "—"}
-            </div>
-          </>
-        )}
       </div>
       <div
         className={
@@ -304,7 +291,7 @@ export function GridAnimationView({ params, spots }: GridAnimationViewProps) {
               ) : (
                 <AdvancedBackground scale={scale} params={params} />
               )}
-            {isAdvanced && showSmears && frame && (
+              {isAdvanced && showSmears && frame && (
                 <SmearOverlayContent
                   spots={orderedTlSpots}
                   scale={scale}
@@ -336,6 +323,54 @@ export function GridAnimationView({ params, spots }: GridAnimationViewProps) {
               breakdown={breakdown}
             />
           </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Sterowanie parametrami animacji">
+        {(isAdvanced || isSimple) && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowConfig((prev) => !prev)}
+              >
+                <span data-lang="pl">Konfiguracja</span>
+                <span data-lang="en">Configuration</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowCharts((prev) => !prev)}
+              >
+                <span data-lang="pl">Wykresy prędkości</span>
+                <span data-lang="en">Speed charts</span>
+              </Button>
+              {motionParams.fireInMotionEnabled && (
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={showSmears}
+                    onChange={(e) => setShowSmears(e.target.checked)}
+                    className="h-3 w-3 rounded border border-input"
+                  />
+                  <span className="whitespace-nowrap">Smugi emisji</span>
+                </label>
+              )}
+              {showConfig && (
+                <AdvancedMotionParamsForm
+                  value={motionParams}
+                  onChange={setMotionParams}
+                  totalDurationMs={totalDurationMs}
+                  breakdown={breakdown}
+                />
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground ml-auto">
+              <span data-lang="pl">Prędkość wózka: </span>
+              <span data-lang="en">Carriage speed: </span>
+              {currentSpeedMmPerS != null ? `${currentSpeedMmPerS.toFixed(1)} mm/s` : "—"}
+            </div>
+          </>
         )}
       </div>
     </div>

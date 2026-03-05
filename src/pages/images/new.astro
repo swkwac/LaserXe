@@ -3,13 +3,17 @@ import Layout from "../../layouts/Layout.astro";
 import UploadImageForm from "../../components/upload/UploadImageForm";
 ---
 
-<Layout title="Dodaj obraz – LaserXe">
+<Layout title="Add image – LaserXe">
   <main class="min-h-full px-4 py-6" role="main">
     <header class="mb-6 border-b border-border pb-4">
       <a href="/images" class="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline">
-        ← Powrót do listy
+        <span data-lang="pl">← Powrót do listy</span>
+        <span data-lang="en">← Back to list</span>
       </a>
-      <h1 class="mt-2 text-xl font-semibold tracking-tight">Dodaj obraz</h1>
+      <h1 class="mt-2 text-xl font-semibold tracking-tight">
+        <span data-lang="pl">Dodaj obraz</span>
+        <span data-lang="en">Add image</span>
+      </h1>
     </header>
     <div class="max-w-md">
       <UploadImageForm client:load redirectToDetail={true} />

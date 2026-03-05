@@ -262,23 +262,42 @@ function AnimationTab({
   }, [algorithmMode]);
 
   const currentSpeedMmPerS = frame?.v_mm_per_s ?? null;
+  const formattedTotalTime = React.useMemo(() => {
+    const s = totalDurationMs / 1000;
+    const decimals = s >= 1 ? 2 : s >= 0.1 ? 3 : 4;
+    return `${s.toFixed(decimals)} s`;
+  }, [totalDurationMs]);
 
   return (
-    <div className="space-y-4" aria-label="Zakładka Animacja">
+    <div className="space-y-4" aria-label="Animation tab">
       <div className="flex flex-wrap items-center gap-4">
-        <h2 className="text-sm font-medium">Wizualizacja sekwencji emisji</h2>
+        <h2 className="text-sm font-medium">
+          <span data-lang="pl">Wizualizacja sekwencji emisji</span>
+          <span data-lang="en">Emission sequence visualization</span>
+        </h2>
         {loadingIterations ? (
-          <span className="text-sm text-muted-foreground">Ładowanie iteracji…</span>
+          <span className="text-sm text-muted-foreground">
+            <span data-lang="pl">Ładowanie iteracji…</span>
+            <span data-lang="en">Loading iterations…</span>
+          </span>
         ) : (
           <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Iteracja:</span>
+            <span className="text-muted-foreground">
+              <span data-lang="pl">Iteracja:</span>
+              <span data-lang="en">Iteration:</span>
+            </span>
             <select
               value={iterationId === "" ? "" : String(iterationId)}
               onChange={handleIterationChange}
               className="rounded-xl border-2 border-input bg-white px-2 py-1 text-sm focus:border-primary"
               disabled={iterations.length === 0}
             >
-              {iterations.length === 0 && <option value="">Brak iteracji</option>}
+              {iterations.length === 0 && (
+                <option value="">
+                  <span data-lang="pl">Brak iteracji</span>
+                  <span data-lang="en">No iterations</span>
+                </option>
+              )}
               {iterations.map((it) => (
                 <option key={it.id} value={it.id}>
                   #{it.id} – {it.spots_count ?? 0} punktów
@@ -301,18 +320,135 @@ function AnimationTab({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={handlePlay} disabled={spots.length === 0 || playing}>
-            Odtwórz
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={handlePause} disabled={!playing}>
-            Wstrzymaj
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={handleReset} disabled={spots.length === 0}>
-            Reset
-          </Button>
+      {loadingSpots && selectedIterationId && (
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Ładowanie punktów…</span>
+          <span data-lang="en">Loading spots…</span>
+        </p>
+      )}
+
+      {spots.length > 0 && (
+        <div className="flex justify-center">
+          <div className="flex items-center gap-3 rounded-full border border-border/70 bg-white/80 px-3 py-1 shadow-sm">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={handlePlay}
+              disabled={spots.length === 0 || playing}
+              className="h-8 w-8 rounded-full p-0"
+              aria-label="Odtwórz animację"
+            >
+              <span aria-hidden>▶</span>
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={handlePause}
+              disabled={!playing}
+              className="h-8 w-8 rounded-full p-0"
+              aria-label="Wstrzymaj animację"
+            >
+              <span aria-hidden>⏸</span>
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={handleReset}
+              disabled={spots.length === 0}
+              className="h-8 w-8 rounded-full p-0"
+              aria-label="Resetuj animację"
+            >
+              <span aria-hidden>⟲</span>
+            </Button>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Czas: {formattedTotalTime}
+            </span>
+          </div>
         </div>
+      )}
+
+      {image.width_mm <= 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć animację.
+        </p>
+      ) : (
+        <div
+          className={
+            (isAdvanced || isSimple) && showCharts && timeline.length > 0
+              ? "flex flex-row gap-4 items-start"
+              : ""
+          }
+        >
+          <div
+            ref={containerRef}
+            className={`relative border border-border rounded-md overflow-hidden bg-muted/30 ${
+              isAdvanced && showCharts && timeline.length > 0
+                ? "flex-1 min-w-0 inline-block max-w-full"
+                : "inline-block max-w-full"
+            }`}
+          >
+            {imageObjectUrl && (
+              <>
+                <img
+                  src={imageObjectUrl}
+                  alt="Obraz zmiany skórnej"
+                  className="block max-h-[70vh] w-auto"
+                  onLoad={handleImageLoad}
+                  draggable={false}
+                  style={{ userSelect: "none" }}
+                />
+                {imageSize && (
+                  <AnimationOverlay
+                    imageSize={imageSize}
+                    scale={scale}
+                    masks={masks}
+                    spots={orderedSpots}
+                    frame={frame}
+                    showMovementAxes={showDiameterLines}
+                    algorithmMode={algorithmMode}
+                    centerPx={centerPx}
+                    radiusPx={radiusPx}
+                  />
+                )}
+              </>
+            )}
+            {!imageObjectUrl && (
+              <div className="flex items-center justify-center w-96 h-48 text-muted-foreground text-sm">
+                Ładowanie obrazu…
+              </div>
+            )}
+            {isDemo && imageObjectUrl && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
+                <span
+                  className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
+                  style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}
+                >
+                  DEMO
+                </span>
+              </div>
+            )}
+          </div>
+          {(isAdvanced || isSimple) && showCharts && timeline.length > 0 && (
+            <div className="flex-shrink-0 w-[700px] overflow-y-auto max-h-[85vh]">
+              <MotionCharts
+                timeline={timeline}
+                linearMoveSegments={linearMoveSegments}
+                rotateSegments={rotateSegments}
+                compact
+                showRotationChart={isAdvanced}
+                currentFrame={frame}
+                totalDurationMs={totalDurationMs}
+                breakdown={breakdown}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-4">
         {(isAdvanced || isSimple) && (
           <>
             <div className="flex flex-wrap items-center gap-2">
@@ -322,7 +458,8 @@ function AnimationTab({
                 size="sm"
                 onClick={() => setShowConfig((prev) => !prev)}
               >
-                Konfiguracja
+                <span data-lang="pl">Konfiguracja</span>
+                <span data-lang="en">Configuration</span>
               </Button>
               <Button
                 type="button"
@@ -330,7 +467,8 @@ function AnimationTab({
                 size="sm"
                 onClick={() => setShowCharts((prev) => !prev)}
               >
-                Wykresy prędkości
+                <span data-lang="pl">Wykresy prędkości</span>
+                <span data-lang="en">Speed charts</span>
               </Button>
               {showConfig && (
                 <AdvancedMotionParamsForm
@@ -342,7 +480,8 @@ function AnimationTab({
               )}
             </div>
             <div className="text-xs text-muted-foreground ml-auto">
-              Prędkość wózka:{" "}
+              <span data-lang="pl">Prędkość wózka: </span>
+              <span data-lang="en">Carriage speed: </span>
               {currentSpeedMmPerS != null ? `${currentSpeedMmPerS.toFixed(1)} mm/s` : "—"}
             </div>
           </>
@@ -366,91 +505,17 @@ function AnimationTab({
         />
       </div>
 
-      {loadingSpots && selectedIterationId && <p className="text-sm text-muted-foreground">Ładowanie punktów…</p>}
-
-      {image.width_mm <= 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Skalibruj skalę obrazu w zakładce Maski (narzędzie „Kalibruj skalę”), aby zobaczyć animację.
-        </p>
-      ) : (
-      <div
-        className={
-          (isAdvanced || isSimple) && showCharts && timeline.length > 0
-            ? "flex flex-row gap-4 items-start"
-            : ""
-        }
-      >
-        <div
-          ref={containerRef}
-          className={`relative border border-border rounded-md overflow-hidden bg-muted/30 ${
-            isAdvanced && showCharts && timeline.length > 0
-              ? "flex-1 min-w-0 inline-block max-w-full"
-              : "inline-block max-w-full"
-          }`}
-        >
-          {imageObjectUrl && (
-            <>
-              <img
-                src={imageObjectUrl}
-                alt="Obraz zmiany skórnej"
-                className="block max-h-[70vh] w-auto"
-                onLoad={handleImageLoad}
-                draggable={false}
-                style={{ userSelect: "none" }}
-              />
-              {imageSize && (
-                <AnimationOverlay
-                  imageSize={imageSize}
-                  scale={scale}
-                  masks={masks}
-                  spots={orderedSpots}
-                  frame={frame}
-                  showMovementAxes={showDiameterLines}
-                  algorithmMode={algorithmMode}
-                  centerPx={centerPx}
-                  radiusPx={radiusPx}
-                />
-              )}
-            </>
-          )}
-          {!imageObjectUrl && (
-            <div className="flex items-center justify-center w-96 h-48 text-muted-foreground text-sm">
-              Ładowanie obrazu…
-            </div>
-          )}
-          {isDemo && imageObjectUrl && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
-              <span
-                className="text-4xl font-bold text-amber-500/40 select-none -rotate-[-25deg]"
-                style={{ textShadow: "0 0 8px rgba(0,0,0,0.3)" }}
-              >
-                DEMO
-              </span>
-            </div>
-          )}
-        </div>
-        {(isAdvanced || isSimple) && showCharts && timeline.length > 0 && (
-          <div className="flex-shrink-0 w-[700px] overflow-y-auto max-h-[85vh]">
-            <MotionCharts
-              timeline={timeline}
-              linearMoveSegments={linearMoveSegments}
-              rotateSegments={rotateSegments}
-              compact
-              showRotationChart={isAdvanced}
-              currentFrame={frame}
-              totalDurationMs={totalDurationMs}
-              breakdown={breakdown}
-            />
-          </div>
-        )}
-      </div>
-      )}
-
       {spots.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <span className="text-muted-foreground">
-            Klatka {currentFrameIndex + 1} / {totalFrames}
-            {frame && ` · Wyemitowane: ${frame.firedIndices.length} / ${spots.length}`}
+            <span data-lang="pl">
+              Klatka {currentFrameIndex + 1} / {totalFrames}
+              {frame && ` · Wyemitowane: ${frame.firedIndices.length} / ${spots.length}`}
+            </span>
+            <span data-lang="en">
+              Frame {currentFrameIndex + 1} / {totalFrames}
+              {frame && ` · Fired: ${frame.firedIndices.length} / ${spots.length}`}
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Kolejność:</span>
@@ -467,7 +532,12 @@ function AnimationTab({
 
       {!loadingIterations && iterations.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Brak iteracji. Wygeneruj plan w zakładce Plan, aby zobaczyć animację.
+          <span data-lang="pl">
+            Brak iteracji. Wygeneruj plan w zakładce Plan, aby zobaczyć animację.
+          </span>
+          <span data-lang="en">
+            No iterations. Generate a plan in the Plan tab to see the animation.
+          </span>
         </p>
       )}
     </div>

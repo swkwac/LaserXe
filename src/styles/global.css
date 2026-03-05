@@ -45,6 +45,19 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Simple language toggle: show only active language version */
+html[data-lang="pl"] [data-lang="en"],
+html[data-lang="en"] [data-lang="pl"] {
+  display: none;
+}
+
+/* Highlight active language toggle in header */
+html[data-lang="en"] [data-lang-toggle="en"],
+html[data-lang="pl"] [data-lang-toggle="pl"] {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

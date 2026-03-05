@@ -20,7 +20,7 @@ function parseDetail(body: unknown): string {
       return String(first);
     }
   }
-  return "Wystąpił błąd. Spróbuj ponownie.";
+  return "An error occurred. Please try again.";
 }
 
 export interface UploadImageFormProps {
@@ -68,11 +68,11 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
       setErrorMessage(null);
 
       if (!file) {
-        setErrorMessage("Wybierz plik PNG lub JPG.");
+        setErrorMessage("Please select a PNG or JPG file.");
         return;
       }
       if (!ALLOWED_TYPES.includes(file.type as (typeof ALLOWED_TYPES)[number])) {
-        setErrorMessage("Tylko pliki PNG i JPG są dozwolone.");
+        setErrorMessage("Only PNG and JPG files are allowed.");
         return;
       }
 
@@ -91,19 +91,19 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
         if (!res.ok) {
           if (res.status === 0) {
             setErrorMessage(
-              "Brak połączenia z API (sprawdź, czy backend działa: npm run dev w backendzie lub uvicorn main:app --port 8000)."
+              "Cannot connect to API (check that the backend is running on http://localhost:8000)."
             );
             return;
           }
           const data = await res.json().catch(() => ({}));
           setErrorMessage(
             res.status === 400
-              ? parseDetail(data) || "Tylko pliki PNG i JPG są dozwolone."
+              ? parseDetail(data) || "Only PNG and JPG files are allowed."
               : res.status === 422
-                ? parseDetail(data) || "Wypełnij wszystkie pola poprawnie."
+                ? parseDetail(data) || "Please fill in all fields correctly."
                 : res.status === 401
-                  ? "Sesja wygasła. Zaloguj się ponownie."
-                  : "Błąd serwera. Spróbuj ponownie."
+                  ? "Session expired. Please log in again."
+                  : "Server error. Please try again."
           );
           return;
         }
@@ -116,7 +116,7 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
       } catch (err) {
         if ((err as Error).message !== "Unauthorized") {
           setErrorMessage(
-            "Błąd połączenia. Upewnij się, że backend działa (http://localhost:8000) i że jesteś zalogowany."
+            "Connection error. Make sure the backend is running (http://localhost:8000) and that you are logged in."
           );
         }
       } finally {
@@ -136,7 +136,10 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
       aria-describedby={errorMessage ? errorId : undefined}
     >
       <div className="space-y-2">
-        <Label htmlFor={fileId}>Plik (PNG lub JPG)</Label>
+        <Label htmlFor={fileId}>
+          <span data-lang="pl">Plik (PNG lub JPG)</span>
+          <span data-lang="en">File (PNG or JPG)</span>
+        </Label>
         <Input
           id={fileId}
           type="file"
@@ -147,7 +150,11 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
         />
         {previewUrl && (
           <div className="mt-2 aspect-video max-h-48 w-full overflow-hidden rounded-md border border-border bg-muted">
-            <img src={previewUrl} alt="Podgląd" className="h-full w-full object-contain" />
+            <img
+              src={previewUrl}
+              alt="Preview"
+              className="h-full w-full object-contain"
+            />
           </div>
         )}
       </div>
@@ -163,7 +170,17 @@ function UploadImageForm({ onSuccess, redirectToDetail = true }: UploadImageForm
       )}
 
       <Button type="submit" disabled={submitDisabled} aria-busy={isSubmitting}>
-        {isSubmitting ? "Wgrywanie…" : "Wgraj"}
+        {isSubmitting ? (
+          <>
+            <span data-lang="pl">Wgrywanie…</span>
+            <span data-lang="en">Uploading…</span>
+          </>
+        ) : (
+          <>
+            <span data-lang="pl">Wgraj</span>
+            <span data-lang="en">Upload</span>
+          </>
+        )}
       </Button>
     </form>
   );

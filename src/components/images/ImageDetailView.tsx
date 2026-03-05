@@ -93,7 +93,7 @@ function ImageDetailView({
           return;
         }
         if (!res.ok) {
-          setError("Nie udało się załadować obrazu.");
+          setError("Failed to load image.");
           setImage(null);
           return;
         }
@@ -103,7 +103,7 @@ function ImageDetailView({
       .catch((err) => {
         if (cancelled) return;
         if ((err as Error).message !== "Unauthorized") {
-          setError("Błąd połączenia.");
+          setError("Connection error.");
           setImage(null);
         }
       })
@@ -143,7 +143,7 @@ function ImageDetailView({
 
   if (loading && !image) {
     return (
-      <section className="space-y-4" aria-busy="true" aria-label="Ładowanie szczegółów obrazu">
+      <section className="space-y-4" aria-busy="true" aria-label="Loading image details">
         <div className="h-8 w-64 animate-pulse rounded bg-muted" />
         <div className="h-48 animate-pulse rounded bg-muted" />
       </section>
@@ -155,7 +155,10 @@ function ImageDetailView({
       <section role="alert" className="space-y-4">
         <p className="text-destructive">{error}</p>
         <Button variant="outline" asChild>
-          <a href="/images">Powrót do listy</a>
+          <a href="/images">
+            <span data-lang="pl">Powrót do listy</span>
+            <span data-lang="en">Back to list</span>
+          </a>
         </Button>
       </section>
     );
@@ -164,7 +167,7 @@ function ImageDetailView({
   if (!image) return null;
 
   return (
-    <section className="space-y-6" aria-label="Szczegóły obrazu">
+    <section className="space-y-6" aria-label="Image details">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
         <div className="flex flex-wrap items-center gap-3">
           <div>
@@ -172,23 +175,28 @@ function ImageDetailView({
               href={isDemo ? "/images?demo=1" : "/images"}
               className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
             >
-              ← Powrót do listy
+              <span data-lang="pl">← Powrót do listy</span>
+              <span data-lang="en">← Back to list</span>
             </a>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight">Szczegóły obrazu #{image.id}</h1>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight">
+              <span data-lang="pl">Szczegóły obrazu #{image.id}</span>
+              <span data-lang="en">Image details #{image.id}</span>
+            </h1>
           </div>
           {isDemo && (
             <span
               className="inline-flex items-center rounded-md border border-amber-500/60 bg-amber-500/20 px-2.5 py-1 text-sm font-medium text-amber-700 dark:text-amber-400"
               role="status"
-              aria-label="Tryb demo"
+              aria-label="Demo mode"
             >
-              Tryb demo
+              <span data-lang="pl">Tryb demo</span>
+              <span data-lang="en">Demo mode</span>
             </span>
           )}
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Zakładki">
+      <nav className="flex flex-wrap gap-1 border-b border-border" aria-label="Tabs">
         {/* tablist has no native HTML element; div is the standard container for ARIA tablist */}
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role */}
         <div role="tablist" className="flex flex-wrap gap-1">

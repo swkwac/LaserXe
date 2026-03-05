@@ -17,7 +17,7 @@ export interface ImageCardProps {
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("pl-PL");
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined);
   } catch {
     return iso;
   }
@@ -83,7 +83,7 @@ function ImageCard({ image, imageUrl: imageUrlProp, demoMode, onDelete }: ImageC
       e.preventDefault();
       e.stopPropagation();
       if (!onDelete) return;
-      if (!window.confirm("Czy na pewno chcesz usunąć ten obraz? Ta operacja jest nieodwracalna.")) {
+      if (!window.confirm("Are you sure you want to delete this image? This action cannot be undone.")) {
         return;
       }
       setDeleting(true);
@@ -105,7 +105,7 @@ function ImageCard({ image, imageUrl: imageUrlProp, demoMode, onDelete }: ImageC
   const showMaskOverlay = imageUrl && imageSize && masks.length > 0;
 
   const href = demoMode ? `/images/${image.id}?demo=1` : `/images/${image.id}`;
-  const label = `Obraz ${image.id}, szerokość ${image.width_mm} mm, ${formatDate(image.created_at)}`;
+  const label = `Image ${image.id}, width ${image.width_mm} mm, ${formatDate(image.created_at)}`;
 
   return (
     <article
@@ -145,15 +145,24 @@ function ImageCard({ image, imageUrl: imageUrlProp, demoMode, onDelete }: ImageC
             )}
           </>
         ) : (
-          <span className="text-muted-foreground text-sm">Obraz</span>
+          <span className="text-muted-foreground text-sm">
+            <span data-lang="pl">Obraz</span>
+            <span data-lang="en">Image</span>
+          </span>
         )}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <p className="text-sm text-muted-foreground">Szerokość: {image.width_mm} mm</p>
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Szerokość: {image.width_mm} mm</span>
+          <span data-lang="en">Width: {image.width_mm} mm</span>
+        </p>
         <p className="text-xs text-muted-foreground">{formatDate(image.created_at)}</p>
         <div className="flex gap-2 mt-auto">
           <Button asChild variant="outline" size="sm" className="flex-1">
-            <a href={href}>Otwórz</a>
+            <a href={href}>
+              <span data-lang="pl">Otwórz</span>
+              <span data-lang="en">Open</span>
+            </a>
           </Button>
           {onDelete && (
             <Button
@@ -165,7 +174,17 @@ function ImageCard({ image, imageUrl: imageUrlProp, demoMode, onDelete }: ImageC
               disabled={deleting}
               aria-busy={deleting}
             >
-              {deleting ? "Usuwanie…" : "Usuń"}
+              {deleting ? (
+                <>
+                  <span data-lang="pl">Usuwanie…</span>
+                  <span data-lang="en">Deleting…</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Usuń</span>
+                  <span data-lang="en">Delete</span>
+                </>
+              )}
             </Button>
           )}
         </div>

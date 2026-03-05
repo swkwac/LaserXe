@@ -14,7 +14,7 @@ const EVENT_TYPES = [
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("pl-PL");
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
   } catch {
     return iso;
   }
@@ -22,11 +22,11 @@ function formatDate(iso: string): string {
 
 function eventTypeLabel(eventType: string): string {
   const labels: Record<string, string> = {
-    iteration_created: "Utworzono iterację",
-    iteration_accepted: "Iteracja zaakceptowana",
-    iteration_rejected: "Iteracja odrzucona",
-    plan_generated: "Wygenerowano plan",
-    fallback_used: "Użyto fallback",
+    iteration_created: "Iteration created",
+    iteration_accepted: "Iteration accepted",
+    iteration_rejected: "Iteration rejected",
+    plan_generated: "Plan generated",
+    fallback_used: "Fallback used",
   };
   return labels[eventType] ?? eventType;
 }
@@ -76,7 +76,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           setTotal(0);
           return;
         }
-        setError("Nie udało się załadować audytu.");
+        setError("Failed to load audit log.");
         setItems([]);
         setTotal(0);
         return;
@@ -86,7 +86,7 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
       setTotal(data.total ?? 0);
     } catch (err) {
       if ((err as Error).message !== "Unauthorized") {
-        setError("Błąd połączenia.");
+        setError("Connection error.");
         setItems([]);
         setTotal(0);
       }
@@ -102,18 +102,27 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className="space-y-4" aria-label="Zakładka Audit log">
+    <div className="space-y-4" aria-label="Audit log tab">
       <h2 className="text-sm font-medium">Audit log</h2>
       {iterationIdFilter != null && !onlyThisImage && (
-        <p className="text-sm text-muted-foreground">Wpisy tylko dla iteracji #{iterationIdFilter}.</p>
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Wpisy tylko dla iteracji #{iterationIdFilter}.</span>
+          <span data-lang="en">Entries only for iteration #{iterationIdFilter}.</span>
+        </p>
       )}
       {onlyThisImage && imageId != null && (
-        <p className="text-sm text-muted-foreground">Wpisy tylko dla obrazu #{imageId}.</p>
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Wpisy tylko dla obrazu #{imageId}.</span>
+          <span data-lang="en">Entries only for image #{imageId}.</span>
+        </p>
       )}
 
       <div className="laserme-card flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Typ zdarzenia:</span>
+          <span className="text-muted-foreground">
+            <span data-lang="pl">Typ zdarzenia:</span>
+            <span data-lang="en">Event type:</span>
+          </span>
           <select
             value={eventType}
             onChange={(e) => {
@@ -124,13 +133,16 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           >
             {EVENT_TYPES.map((t) => (
               <option key={t || "all"} value={t}>
-                {t ? eventTypeLabel(t) : "Wszystkie"}
+                {t ? eventTypeLabel(t) : "All"}
               </option>
             ))}
           </select>
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Od:</span>
+          <span className="text-muted-foreground">
+            <span data-lang="pl">Od:</span>
+            <span data-lang="en">From:</span>
+          </span>
           <input
             type="date"
             value={fromDate}
@@ -142,7 +154,10 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           />
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Do:</span>
+          <span className="text-muted-foreground">
+            <span data-lang="pl">Do:</span>
+            <span data-lang="en">To:</span>
+          </span>
           <input
             type="date"
             value={toDate}
@@ -164,7 +179,10 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               }}
               className="rounded border border-input"
             />
-            <span className="text-muted-foreground">Tylko ten obraz</span>
+            <span className="text-muted-foreground">
+              <span data-lang="pl">Tylko ten obraz</span>
+              <span data-lang="en">Only this image</span>
+            </span>
           </label>
         )}
         <button
@@ -172,29 +190,49 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           className="rounded-xl border-2 border-primary bg-white px-3 py-1 text-sm text-primary hover:bg-primary/5"
           onClick={() => fetchList()}
         >
-          Odśwież
+          <span data-lang="pl">Odśwież</span>
+          <span data-lang="en">Refresh</span>
         </button>
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Ładowanie…</p>}
+      {loading && (
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Ładowanie…</span>
+          <span data-lang="en">Loading…</span>
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {!loading && !error && items.length === 0 && <p className="text-sm text-muted-foreground">Brak wpisów audytu.</p>}
+      {!loading && !error && items.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          <span data-lang="pl">Brak wpisów audytu.</span>
+          <span data-lang="en">No audit entries.</span>
+        </p>
+      )}
       {!loading && !error && items.length > 0 && (
         <>
           <div className="overflow-x-auto rounded-xl border-2 border-border">
-            <table className="w-full text-sm" aria-label="Tabela audytu">
+            <table className="w-full text-sm" aria-label="Audit table">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="px-3 py-2 text-left font-medium">Id</th>
-                  <th className="px-3 py-2 text-left font-medium">Iteracja</th>
-                  <th className="px-3 py-2 text-left font-medium">Zdarzenie</th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    <span data-lang="pl">Iteracja</span>
+                    <span data-lang="en">Iteration</span>
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    <span data-lang="pl">Zdarzenie</span>
+                    <span data-lang="en">Event</span>
+                  </th>
                   <th className="px-3 py-2 text-left font-medium">Payload</th>
                   <th className="px-3 py-2 text-left font-medium">User</th>
-                  <th className="px-3 py-2 text-left font-medium">Data</th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    <span data-lang="pl">Data</span>
+                    <span data-lang="en">Date</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -215,7 +253,12 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">
-              Strona {page} / {totalPages} (łącznie {total} wpisów)
+              <span data-lang="pl">
+                Strona {page} / {totalPages} (łącznie {total} wpisów)
+              </span>
+              <span data-lang="en">
+                Page {page} / {totalPages} (total {total} entries)
+              </span>
             </span>
             <button
               type="button"
@@ -223,7 +266,8 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
-              Poprzednia
+              <span data-lang="pl">Poprzednia</span>
+              <span data-lang="en">Previous</span>
             </button>
             <button
               type="button"
@@ -231,7 +275,8 @@ function AuditLogTab({ iterationIdFilter, imageId }: AuditLogTabProps) {
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >
-              Następna
+              <span data-lang="pl">Następna</span>
+              <span data-lang="en">Next</span>
             </button>
           </div>
         </>

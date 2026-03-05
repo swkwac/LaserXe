@@ -4,6 +4,7 @@ const STORAGE_KEY = "laserxe_grid_generator_params";
 
 export type StoredGridParams = GridGeneratorRequestDto & {
   simple_input_mode?: "coverage" | "spacing";
+  advanced_input_mode?: "coverage" | "spacing";
 };
 
 /**
@@ -47,11 +48,22 @@ export function loadGridGeneratorParams(): StoredGridParams | null {
         result.simple_input_mode = "coverage";
       }
     } else {
-      const target_coverage_pct = p.target_coverage_pct;
-      if (typeof target_coverage_pct !== "number" || target_coverage_pct < 0.1 || target_coverage_pct > 100) {
-        return null;
+      const mode = p.advanced_input_mode;
+      if (mode === "spacing") {
+        const axis_distance_mm = p.axis_distance_mm;
+        if (typeof axis_distance_mm !== "number" || axis_distance_mm < 0.5 || axis_distance_mm > 3) {
+          return null;
+        }
+        result.axis_distance_mm = axis_distance_mm;
+        result.advanced_input_mode = "spacing";
+      } else {
+        const target_coverage_pct = p.target_coverage_pct;
+        if (typeof target_coverage_pct !== "number" || target_coverage_pct < 0.1 || target_coverage_pct > 100) {
+          return null;
+        }
+        result.target_coverage_pct = target_coverage_pct;
+        result.advanced_input_mode = "coverage";
       }
-      result.target_coverage_pct = target_coverage_pct;
       if (typeof p.angle_step_deg === "number" && p.angle_step_deg >= 3 && p.angle_step_deg <= 20) {
         result.angle_step_deg = p.angle_step_deg;
       }
@@ -80,7 +92,12 @@ export function saveGridGeneratorParams(params: StoredGridParams): void {
         toSave.target_coverage_pct = params.target_coverage_pct;
       }
     } else {
-      if (params.target_coverage_pct != null) toSave.target_coverage_pct = params.target_coverage_pct;
+      toSave.advanced_input_mode = params.advanced_input_mode ?? "coverage";
+      if (params.advanced_input_mode === "spacing" && params.axis_distance_mm != null) {
+        toSave.axis_distance_mm = params.axis_distance_mm;
+      } else if (params.target_coverage_pct != null) {
+        toSave.target_coverage_pct = params.target_coverage_pct;
+      }
       if (params.angle_step_deg != null) toSave.angle_step_deg = params.angle_step_deg;
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
