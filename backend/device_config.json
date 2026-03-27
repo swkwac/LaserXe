@@ -1,0 +1,23 @@
+{
+  "serial": {
+    "pico_port": null,
+    "pico_baud": 115200
+  },
+  "linear": {
+    "travel_min_mm": -12.5,
+    "travel_max_mm": 12.5,
+    "encoder_resolution_nm": 1250,
+    "xda_axis": "X",
+    "max_speed_units": null
+  },
+  "rotation": {
+    "travel_min_deg": -90,
+    "travel_max_deg": 90,
+    "motor_steps_per_rev": 200,
+    "microsteps": 16,
+    "gear_ratio": 1.0,
+    "encoder_cpr": 4096,
+    "max_speed_steps_per_s": 2000.0,
+    "accel_steps_per_s2": 8000.0
+  }
+}

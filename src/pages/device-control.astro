@@ -1,0 +1,26 @@
+---
+import Layout from "../layouts/Layout.astro";
+import DeviceControlPage from "../components/device/DeviceControlPage";
+---
+
+<Layout title="Device control – LaserXe">
+  <main class="min-h-full px-4 py-6" role="main">
+    <header class="mb-6 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
+      <h1 class="text-xl font-semibold tracking-tight text-foreground">
+        <span data-lang="pl">Sterowanie mechaniką</span>
+        <span data-lang="en">Mechanism control</span>
+      </h1>
+    </header>
+    <p class="mb-6 text-sm text-muted-foreground">
+      <span data-lang="pl">
+        Konfiguruj port kontrolera, zakresy osi i parametry mechaniczne. Panel sterowania wysyła komendy przez API do
+        aktywnego backendu napędu (Pico lub Arduino/GRBL).
+      </span>
+      <span data-lang="en">
+        Configure the controller port, axis limits, and mechanical parameters. The control panel sends commands via the
+        API to the active motion backend (Pico or Arduino/GRBL).
+      </span>
+    </p>
+    <DeviceControlPage client:load />
+  </main>
+</Layout>

@@ -25,6 +25,7 @@ export async function generateGrid(
       payload.target_coverage_pct = body.target_coverage_pct;
     }
   } else {
+    if (body.axis_distance_mm != null) payload.axis_distance_mm = body.axis_distance_mm;
     if (body.target_coverage_pct != null) payload.target_coverage_pct = body.target_coverage_pct;
     if (body.angle_step_deg != null) payload.angle_step_deg = body.angle_step_deg;
   }
@@ -39,8 +40,13 @@ export async function generateGrid(
     const message = text
       ? (() => {
           try {
-            const data = JSON.parse(text) as { detail?: string };
-            return typeof data?.detail === "string" ? data.detail : DEFAULT_ERROR;
+            const data = JSON.parse(text) as { detail?: string | Array<{ msg?: string }> };
+            if (typeof data?.detail === "string") return data.detail;
+            if (Array.isArray(data?.detail)) {
+              const first = data.detail[0];
+              if (first?.msg) return first.msg;
+            }
+            return DEFAULT_ERROR;
           } catch {
             return DEFAULT_ERROR;
           }

@@ -14,7 +14,7 @@ import type { GridGeneratorRequestDto, GridGeneratorResponseDto } from "@/types"
 const MIN_COVERAGE = 0.1;
 const MAX_COVERAGE = 100;
 const MIN_AXIS_DISTANCE_MM = 0.5;
-const MAX_AXIS_DISTANCE_MM = 3;
+const MAX_AXIS_DISTANCE_MM = 5;
 const DEFAULT_AXIS_DISTANCE_MM = 0.8;
 const DEFAULT_COVERAGE = 10;
 const MIN_ANGLE_STEP = 3;
@@ -183,7 +183,7 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
         onResult(result, meta);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Connection error.";
-        setError(msg === "Unauthorized" ? "Session expired. Please log in again." : msg);
+        setError(msg === "Unauthorized" ? "Unauthorized request." : msg);
       } finally {
         setGenerating(false);
       }
@@ -228,8 +228,8 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
                 <span data-lang="en">Simple – 12×12 mm</span>
               </span>
               <p className="text-xs text-muted-foreground">
-                <span data-lang="pl">Prostokąt, siatka XY, odstęp między osiami 0.5–3 mm.</span>
-                <span data-lang="en">Rectangle, XY grid, axis spacing 0.5–3 mm.</span>
+                <span data-lang="pl">Prostokąt, siatka XY, odstęp między osiami 0.5–5 mm.</span>
+                <span data-lang="en">Rectangle, XY grid, axis spacing 0.5–5 mm.</span>
               </p>
             </span>
           </label>

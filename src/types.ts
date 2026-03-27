@@ -112,6 +112,113 @@ export interface HealthStatusDto {
   status: "ok";
 }
 
+// --- Device control DTOs ---
+export interface DeviceSerialConfigDto {
+  pico_port: string | null;
+  pico_baud: number;
+  rotation_backend?: "pico" | "arduino_grbl";
+}
+
+export interface DeviceLinearAxisConfigDto {
+  travel_min_mm: number;
+  travel_max_mm: number;
+  encoder_resolution_nm: number;
+  xda_axis: string;
+  max_speed_units?: number | null;
+  in_position_tolerance_units?: number;
+  move_timeout_ms?: number;
+}
+
+export interface DeviceRotationAxisConfigDto {
+  travel_min_deg: number;
+  travel_max_deg: number;
+  motor_steps_per_rev: number;
+  microsteps: number;
+  gear_ratio: number;
+  encoder_cpr: number;
+  max_speed_steps_per_s: number;
+  accel_steps_per_s2: number;
+  encoder_correction_threshold?: number;
+}
+
+export interface DeviceConfigDto {
+  serial: DeviceSerialConfigDto;
+  linear: DeviceLinearAxisConfigDto;
+  rotation: DeviceRotationAxisConfigDto;
+}
+
+export interface DeviceConfigComputedDto {
+  linear_units_per_mm: number;
+  rotation_steps_per_deg: number;
+  rotation_encoder_counts_per_deg: number;
+}
+
+export interface DeviceConfigResponseDto {
+  config: DeviceConfigDto;
+  computed: DeviceConfigComputedDto;
+}
+
+export type DeviceAxis = "linear" | "rotation" | "both";
+
+export interface DeviceWaypointDto {
+  linear_mm: number;
+  rotation_deg: number;
+  dwell_ms?: number | null;
+}
+
+export interface DeviceCommandDto {
+  type:
+    | "home"
+    | "move_abs"
+    | "move_rel"
+    | "stop"
+    | "emergency_stop"
+    | "jog"
+    | "jog_stop"
+    | "pattern_start"
+    | "pattern_cancel"
+    | "status";
+  axis?: DeviceAxis;
+  value?: number;
+  unit?: "mm" | "deg";
+  speed?: number;
+  pattern?: DeviceWaypointDto[];
+}
+
+export interface DeviceCommandResponseDto {
+  ok: boolean;
+  sent: Record<string, unknown>;
+  message?: string | null;
+}
+
+export interface DeviceStatusDto {
+  connected: boolean;
+  last_error?: string | null;
+  linear_position_mm?: number | null;
+  rotation_position_deg?: number | null;
+  linear_moving?: boolean | null;
+  rotation_moving?: boolean | null;
+  last_update?: string | null;
+  firmware_version?: string | null;
+}
+
+export interface DevicePositionPresetDto {
+  name: string;
+  linear_mm: number;
+  rotation_deg: number;
+}
+
+export interface DevicePatternDto {
+  name: string;
+  waypoints: DeviceWaypointDto[];
+}
+
+export interface DeviceSerialPortDto {
+  port: string;
+  description: string;
+  hwid: string;
+}
+
 // --- Image DTOs ---
 export type ImageDto = ImageEntityDto;
 

@@ -22,6 +22,7 @@ from app.api.images import router as images_router
 from app.api.iteration_by_id import router as iteration_by_id_router
 from app.api.iterations import router as iterations_router
 from app.api.masks import router as masks_router
+from app.api.device import router as device_router
 from app.middleware.auth import auth_middleware
 
 app = FastAPI(
@@ -33,7 +34,15 @@ app = FastAPI(
 # CORS: frontend (e.g. Astro on :4321) calls this API on :8000 — browser blocks without Allow-Origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:4321", "http://127.0.0.1:4321"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:4321",
+        "http://127.0.0.1:4321",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1):\d+$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,6 +56,7 @@ app.include_router(iterations_router, prefix="/api/images", tags=["iterations"])
 app.include_router(iteration_by_id_router, prefix="/api/iterations", tags=["iterations"])
 app.include_router(audit_log_router, prefix="/api", tags=["audit-log"])
 app.include_router(grid_generator_router, prefix="/api/grid-generator", tags=["grid-generator"])
+app.include_router(device_router, prefix="/api/device", tags=["device"])
 
 
 @app.get("/health")

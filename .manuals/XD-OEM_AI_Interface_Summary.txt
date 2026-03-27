@@ -1,0 +1,141 @@
+
+XD-OEM Controller – AI Interface Summary
+
+Purpose
+This document summarizes the essential communication protocol and control commands for the Xeryon XD-OEM piezo controller.
+It is written in a simple machine-readable format so that AI systems, firmware, or software services can easily parse it.
+
+--------------------------------------------------
+1. Communication Interfaces
+--------------------------------------------------
+
+Supported control interfaces:
+
+USB        : Virtual COM port (recommended for PC/server)
+UART       : Serial interface for microcontrollers
+GPIO       : Digital and analog control signals
+EtherCAT   : Industrial multi-axis communication
+
+--------------------------------------------------
+2. Serial Communication Settings
+--------------------------------------------------
+
+Protocol           : ASCII commands
+Baud rate          : Auto-detected (up to 115200)
+UART max baud      : 76800
+Data bits          : 8
+Stop bits          : 1
+Parity             : None
+Handshake          : None
+Command terminator : New line character (ASCII 10)
+
+--------------------------------------------------
+3. Command Format
+--------------------------------------------------
+
+Commands are ASCII strings.
+
+General format:
+
+AXIS:COMMAND=value
+
+Example:
+X:DPOS=5000
+
+Structure:
+
+AXIS        : single character axis identifier (e.g., X)
+COMMAND     : four-letter command
+=           : separator
+value       : integer number
+newline     : ASCII 10 terminates the command
+
+Example command sent over serial:
+
+X:DPOS=5000\n
+
+--------------------------------------------------
+4. Core Motion Commands
+--------------------------------------------------
+
+INDX        : Find encoder index
+HOME        : Move to home position (DPOS = 0)
+DPOS=value  : Move to absolute target position
+STEP=value  : Move relative distance
+SCAN=value  : Continuous motion
+SSPD=value  : Set speed
+STOP        : Stop actuator motion
+
+--------------------------------------------------
+5. Querying Values
+--------------------------------------------------
+
+To request a value from the controller:
+
+PARAMETER=?
+
+Example:
+
+EPOS=?
+
+Controller response format:
+
+EPOS=12345678
+
+Responses are ASCII messages terminated by a newline.
+
+--------------------------------------------------
+6. UART Wiring
+--------------------------------------------------
+
+Pin 2  : Ground
+Pin 5  : 5V reference
+Pin 12 : TX (controller transmit)
+Pin 18 : RX (controller receive)
+
+--------------------------------------------------
+7. Power Requirements
+--------------------------------------------------
+
+Input voltage : 12–48 V DC
+Typical power : ~10 W per controller
+
+--------------------------------------------------
+8. Example Motion Sequence
+--------------------------------------------------
+
+Example commands:
+
+INDX
+X:SSPD=10000
+X:DPOS=5000
+
+Sequence explanation:
+
+1. Search for encoder index.
+2. Set actuator speed.
+3. Move to position 5000 encoder units.
+
+--------------------------------------------------
+9. Programming Integration
+--------------------------------------------------
+
+The controller can be controlled from any language capable of sending ASCII commands to a serial port.
+
+Typical environments:
+
+Python
+Node.js
+C++
+MATLAB
+LabVIEW
+
+Example pseudocode:
+
+serial.write("INDX\n")
+serial.write("X:SSPD=10000\n")
+serial.write("X:DPOS=5000\n")
+
+--------------------------------------------------
+End of summary
+--------------------------------------------------

@@ -3,7 +3,6 @@
  * LaserMe-style red header bar.
  * No logo for now – placeholder for future branding.
  */
-import LogoutButton from "./auth/LogoutButton";
 ---
 <header
   class="flex h-14 shrink-0 items-center px-4 md:px-6"
@@ -33,6 +32,13 @@ import LogoutButton from "./auth/LogoutButton";
         <span data-lang="pl">Obrazy</span>
         <span data-lang="en">Images</span>
       </a>
+      <a
+        href="/device-control"
+        class="text-white/90 hover:text-white hover:underline"
+      >
+        <span data-lang="pl">Mechanika</span>
+        <span data-lang="en">Mechanism</span>
+      </a>
     </nav>
     <div class="flex items-center gap-4">
       <div class="flex items-center gap-1 text-sm text-white/90">
@@ -52,7 +58,6 @@ import LogoutButton from "./auth/LogoutButton";
           PL
         </button>
       </div>
-      <LogoutButton client:load className="text-white hover:bg-white/20 hover:text-white" />
     </div>
   </div>
 </header>

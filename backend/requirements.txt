@@ -17,3 +17,6 @@ bcrypt>=4.0,<4.1
 # Testing (TestClient uses httpx)
 pytest>=8.0
 httpx>=0.28.0
+
+# Device control (USB serial)
+pyserial>=3.5
