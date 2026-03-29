@@ -1,23 +1,29 @@
 {
   "serial": {
-    "pico_port": null,
-    "pico_baud": 115200
+    "pico_port": "COM20",
+    "pico_baud": 115200,
+    "rotation_backend": "arduino_grbl",
+    "linear_port": "COM22",
+    "linear_baud": 115200
   },
   "linear": {
     "travel_min_mm": -12.5,
     "travel_max_mm": 12.5,
     "encoder_resolution_nm": 1250,
     "xda_axis": "X",
-    "max_speed_units": null
+    "max_speed_units": null,
+    "in_position_tolerance_units": 50,
+    "move_timeout_ms": 5000
   },
   "rotation": {
-    "travel_min_deg": -90,
-    "travel_max_deg": 90,
+    "travel_min_deg": -90.0,
+    "travel_max_deg": 90.0,
     "motor_steps_per_rev": 200,
     "microsteps": 16,
     "gear_ratio": 1.0,
     "encoder_cpr": 4096,
     "max_speed_steps_per_s": 2000.0,
-    "accel_steps_per_s2": 8000.0
+    "accel_steps_per_s2": 8000.0,
+    "encoder_correction_threshold": 0
   }
 }

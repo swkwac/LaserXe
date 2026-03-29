@@ -1,8 +1,10 @@
 import * as React from "react";
 import { useId } from "react";
+import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { normalizeClientError } from "@/lib/apiErrors";
 import { generateGrid } from "@/lib/services/gridApi";
 import {
   loadGridGeneratorParams,
@@ -182,8 +184,7 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
             : { advanced_input_mode: params.advanced_input_mode ?? "coverage" };
         onResult(result, meta);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Connection error.";
-        setError(msg === "Unauthorized" ? "Unauthorized request." : msg);
+        setError(normalizeClientError(err));
       } finally {
         setGenerating(false);
       }
@@ -488,9 +489,9 @@ function GridGeneratorForm({ onResult }: GridGeneratorFormProps) {
       )}
 
       {error && (
-        <p id="grid-form-error" className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div id="grid-form-error" className="space-y-1">
+          <ApiErrorPanel title="Grid generation failed" message={error} />
+        </div>
       )}
 
       <Button type="submit" disabled={generating} aria-busy={generating}>

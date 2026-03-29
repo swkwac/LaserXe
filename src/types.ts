@@ -117,6 +117,9 @@ export interface DeviceSerialConfigDto {
   pico_port: string | null;
   pico_baud: number;
   rotation_backend?: "pico" | "arduino_grbl";
+  /** XDA/XLA-1 USB COM when rotation uses Arduino/GRBL (split setup). */
+  linear_port?: string | null;
+  linear_baud?: number;
 }
 
 export interface DeviceLinearAxisConfigDto {
@@ -200,6 +203,8 @@ export interface DeviceStatusDto {
   rotation_moving?: boolean | null;
   last_update?: string | null;
   firmware_version?: string | null;
+  /** Split-USB pattern_start running in a server background task */
+  sweep_program_running?: boolean | null;
 }
 
 export interface DevicePositionPresetDto {
@@ -217,6 +222,19 @@ export interface DeviceSerialPortDto {
   port: string;
   description: string;
   hwid: string;
+}
+
+export interface DeviceXdaDiagDto {
+  lines: string[];
+}
+
+export interface DeviceXdaToolsStateDto {
+  jog_open_loop: boolean;
+  source: string;
+  env_jog_open_loop: boolean;
+  axis_prefix_enabled: boolean;
+  axis_prefix_source: string;
+  env_axis_prefix_enabled: boolean;
 }
 
 // --- Image DTOs ---

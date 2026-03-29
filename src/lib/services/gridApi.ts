@@ -2,18 +2,14 @@
  * Grid Generator API: standalone grid generation (no image).
  * Uses apiFetch for auth and 401 redirect.
  */
-import { apiFetch } from "@/lib/api";
+import { fetchJsonOrThrow } from "@/lib/apiErrors";
 import type { GridGeneratorRequestDto, GridGeneratorResponseDto } from "@/types";
-
-const DEFAULT_ERROR = "Nie udało się wygenerować siatki.";
 
 /**
  * Generates grid for simple (12×12 mm) or advanced (25 mm diameter) aperture.
- * On 4xx/5xx throws Error with API detail message or default.
+ * On 4xx/5xx throws Error with long formatted API detail.
  */
-export async function generateGrid(
-  body: GridGeneratorRequestDto
-): Promise<GridGeneratorResponseDto> {
+export async function generateGrid(body: GridGeneratorRequestDto): Promise<GridGeneratorResponseDto> {
   const payload: Record<string, unknown> = {
     aperture_type: body.aperture_type,
     spot_diameter_um: body.spot_diameter_um,
@@ -30,30 +26,17 @@ export async function generateGrid(
     if (body.angle_step_deg != null) payload.angle_step_deg = body.angle_step_deg;
   }
 
-  const res = await apiFetch("/api/grid-generator/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const message = text
-      ? (() => {
-          try {
-            const data = JSON.parse(text) as { detail?: string | Array<{ msg?: string }> };
-            if (typeof data?.detail === "string") return data.detail;
-            if (Array.isArray(data?.detail)) {
-              const first = data.detail[0];
-              if (first?.msg) return first.msg;
-            }
-            return DEFAULT_ERROR;
-          } catch {
-            return DEFAULT_ERROR;
-          }
-        })()
-      : DEFAULT_ERROR;
-    throw new Error(message);
-  }
-  if (!text) throw new Error(DEFAULT_ERROR);
-  return JSON.parse(text) as GridGeneratorResponseDto;
+  return fetchJsonOrThrow<GridGeneratorResponseDto>(
+    "/api/grid-generator/generate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      operation: "Generate treatment grid (simple or advanced aperture)",
+      path: "/api/grid-generator/generate",
+      method: "POST",
+    }
+  );
 }

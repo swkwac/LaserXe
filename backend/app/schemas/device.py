@@ -5,17 +5,38 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _normalize_com_port(value: str | None) -> str | None:
+    if value is None:
+        return None
+    s = value.strip()
+    return s if s else None
 
 
 class DeviceSerialConfigSchema(BaseModel):
-    """Serial connection to the Pico."""
+    """Serial: Pico (combined) or split USB (GRBL rotation + XDA linear)."""
 
     model_config = ConfigDict(extra="forbid")
 
     pico_port: str | None = None
     pico_baud: int = Field(115200, ge=1200, le=1_000_000)
     rotation_backend: Literal["pico", "arduino_grbl"] = "pico"
+    linear_port: str | None = Field(
+        None,
+        description="XD-OEM (XLA-1) COM port when using Arduino/GRBL for rotation (second USB). Ignored with Pico backend.",
+    )
+    linear_baud: int = Field(115200, ge=1200, le=1_000_000)
+
+    @field_validator("pico_port", "linear_port", mode="before")
+    @classmethod
+    def strip_serial_ports(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return _normalize_com_port(v)
+        raise TypeError("serial port fields must be a string or null")
 
 
 class DeviceLinearAxisSchema(BaseModel):
@@ -177,3 +198,7 @@ class DeviceStatusSchema(BaseModel):
     rotation_moving: bool | None = None
     last_update: datetime | None = None
     firmware_version: str | None = None
+    sweep_program_running: bool | None = Field(
+        default=None,
+        description="True while split-USB pattern_start runs in a server background task.",
+    )

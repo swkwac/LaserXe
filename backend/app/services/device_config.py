@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from app.schemas.device import (
     DeviceConfigComputedSchema,
@@ -21,6 +22,8 @@ DEFAULT_CONFIG = DeviceConfigSchema(
         pico_port=None,
         pico_baud=115200,
         rotation_backend="pico",
+        linear_port=None,
+        linear_baud=115200,
     ),
     linear=DeviceLinearAxisSchema(
         travel_min_mm=-12.5,
@@ -50,7 +53,8 @@ def load_device_config() -> DeviceConfigSchema:
     try:
         raw = CONFIG_PATH.read_text(encoding="utf-8")
         data = json.loads(raw)
-        return DeviceConfigSchema.model_validate(data)
+        cfg = DeviceConfigSchema.model_validate(data)
+        return cfg
     except (json.JSONDecodeError, ValueError, KeyError, TypeError):
         return DEFAULT_CONFIG
 
@@ -58,6 +62,23 @@ def load_device_config() -> DeviceConfigSchema:
 def save_device_config(config: DeviceConfigSchema) -> DeviceConfigSchema:
     CONFIG_PATH.write_text(json.dumps(config.model_dump(), indent=2), encoding="utf-8")
     return config
+
+
+def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Merge patch into base; nested dicts are merged so omitted keys keep previous values."""
+    out = dict(base)
+    for key, value in patch.items():
+        if key in out and isinstance(out[key], dict) and isinstance(value, dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def apply_device_config_patch(existing: DeviceConfigSchema, patch: dict[str, Any]) -> DeviceConfigSchema:
+    """Apply a partial JSON update without wiping nested fields omitted from the request body."""
+    merged = _deep_merge_dict(existing.model_dump(mode="json"), patch)
+    return DeviceConfigSchema.model_validate(merged)
 
 
 def compute_device_config(config: DeviceConfigSchema) -> DeviceConfigResponseSchema:

@@ -1,7 +1,9 @@
 import * as React from "react";
+import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { normalizeClientError } from "@/lib/apiErrors";
 import {
   getDeviceConfig,
   getPatterns,
@@ -9,10 +11,26 @@ import {
   getPresets,
   getSerialPorts,
   getDeviceStreamUrl,
+  getXdaDiag,
+  getXdaToolsState,
   saveDeviceConfig,
   savePatterns,
   savePresets,
   sendDeviceCommand,
+  xdaConnect,
+  xdaDisconnect,
+  xdaMoveAbsMm,
+  xdaQuery,
+  xdaResetNow,
+  xdaSendRaw,
+  xdaSetInfoMode,
+  xdaSetSpeed,
+  xdaStepCounts,
+  xdaStepMm,
+  xdaStopNow,
+  setXdaAxisPrefix,
+  xdaEnableDriveNow,
+  xdaRunIndexNow,
 } from "@/lib/services/deviceApi";
 import { CalibrationWizard } from "@/components/device/CalibrationWizard";
 import { PatternPreview } from "@/components/device/PatternPreview";
@@ -25,6 +43,7 @@ import type {
   DeviceSerialPortDto,
   DeviceStatusDto,
   DeviceWaypointDto,
+  DeviceXdaToolsStateDto,
 } from "@/types";
 
 function SweepXYPreview({
@@ -187,6 +206,37 @@ function SweepXYPreview({
   );
 }
 
+/** Generic serial defaults; COM ports must be configured explicitly. */
+const DEFAULT_SERIAL_BAUD = 115200;
+const ROTATION_NUDGE_DEG = 1;
+
+function getLinearCountsPerMm(
+  computed: DeviceConfigComputedDto | null,
+  config: DeviceConfigDto
+): number {
+  if (computed?.linear_units_per_mm && Number.isFinite(computed.linear_units_per_mm) && computed.linear_units_per_mm > 0) {
+    return computed.linear_units_per_mm;
+  }
+  const nmPerCount = config.linear.encoder_resolution_nm;
+  if (Number.isFinite(nmPerCount) && nmPerCount > 0) {
+    return 1_000_000 / nmPerCount;
+  }
+  return 1250;
+}
+
+function withDefaultConnectionFields(cfg: DeviceConfigDto): DeviceConfigDto {
+  const rb = cfg.serial.rotation_backend ?? "arduino_grbl";
+  return {
+    ...cfg,
+    serial: {
+      ...cfg.serial,
+      rotation_backend: rb,
+      pico_port: cfg.serial.pico_port?.trim() ? cfg.serial.pico_port.trim() : null,
+      linear_port: cfg.serial.linear_port?.trim() ? cfg.serial.linear_port.trim() : null,
+    },
+  };
+}
+
 function DeviceControlPage() {
   const [uiMode, setUiMode] = React.useState<"simple" | "advanced">("simple");
   const [config, setConfig] = React.useState<DeviceConfigDto | null>(null);
@@ -197,9 +247,24 @@ function DeviceControlPage() {
   const [commandBusy, setCommandBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [commandError, setCommandError] = React.useState<string | null>(null);
+  const [lastCommandAck, setLastCommandAck] = React.useState<string | null>(null);
   const [streamConnected, setStreamConnected] = React.useState(false);
-  const [linearTarget, setLinearTarget] = React.useState(0);
-  const [linearStep, setLinearStep] = React.useState(0.5);
+  const [showXdaLog, setShowXdaLog] = React.useState(true);
+  const [showSweepProgram, setShowSweepProgram] = React.useState(true);
+  const [xdaDiagLines, setXdaDiagLines] = React.useState<string[]>([]);
+  const [xdaToolsState, setXdaToolsState] = React.useState<DeviceXdaToolsStateDto | null>(null);
+  const [xdaPanelBusy, setXdaPanelBusy] = React.useState(false);
+  const [xdaPort, setXdaPort] = React.useState("");
+  const [xdaBaud, setXdaBaud] = React.useState(DEFAULT_SERIAL_BAUD);
+  const [xdaAxis, setXdaAxis] = React.useState("X");
+  const [xdaCountsPerMm, setXdaCountsPerMm] = React.useState(1250);
+  const [xdaInvertDirection, setXdaInvertDirection] = React.useState(true);
+  const [xdaSpeedUnits, setXdaSpeedUnits] = React.useState(5000);
+  const [xdaRelativeMm, setXdaRelativeMm] = React.useState(1);
+  const [xdaRelativeCounts, setXdaRelativeCounts] = React.useState(1250);
+  const [xdaAbsoluteMm, setXdaAbsoluteMm] = React.useState(0);
+  const [xdaInfoMode, setXdaInfoMode] = React.useState(7);
+  const [xdaRawCommand, setXdaRawCommand] = React.useState("STEP=1250");
   const [rotationTarget, setRotationTarget] = React.useState(0);
   const [rotationStep, setRotationStep] = React.useState(5);
   const [sweepXMin, setSweepXMin] = React.useState(-5);
@@ -227,12 +292,12 @@ function DeviceControlPage() {
     getDeviceConfig()
       .then((data) => {
         if (cancelled) return;
-        setConfig(data.config);
+        setConfig(withDefaultConnectionFields(data.config));
         setComputed(data.computed);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load device config.");
+        setError(normalizeClientError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -259,6 +324,16 @@ function DeviceControlPage() {
       .then(setPatterns)
       .catch(() => {});
   }, []);
+
+  React.useEffect(() => {
+    if (!config) return;
+    setXdaPort((config.serial.linear_port ?? "").trim());
+    setXdaBaud(config.serial.linear_baud ?? DEFAULT_SERIAL_BAUD);
+    setXdaAxis((config.linear.xda_axis ?? "X").slice(0, 1).toUpperCase() || "X");
+    const countsPerMm = getLinearCountsPerMm(computed, config);
+    setXdaCountsPerMm(Math.max(1, countsPerMm));
+    setXdaRelativeCounts(Math.max(1, Math.round(countsPerMm)));
+  }, [config, computed]);
 
   React.useEffect(() => {
     // Always open in simple mode by default.
@@ -316,16 +391,62 @@ function DeviceControlPage() {
       });
   }, [status]);
 
+  const refreshStatus = React.useCallback(async () => {
+    try {
+      const data = await getDeviceStatus();
+      setStatus(data);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshXdaDiag = React.useCallback(async () => {
+    try {
+      const data = await getXdaDiag();
+      setXdaDiagLines(data.lines || []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshXdaToolsState = React.useCallback(async () => {
+    try {
+      const data = await getXdaToolsState();
+      setXdaToolsState(data);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  /** Live stream pushes ~10/s; if the WebSocket fails, poll so positions/errors still update. */
+  React.useEffect(() => {
+    if (streamConnected) return;
+    const id = window.setInterval(() => {
+      void refreshStatus();
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [streamConnected, refreshStatus]);
+
+  React.useEffect(() => {
+    void refreshXdaDiag();
+    void refreshXdaToolsState();
+    const id = window.setInterval(() => {
+      void refreshXdaDiag();
+      void refreshXdaToolsState();
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [refreshXdaDiag, refreshXdaToolsState]);
+
   const handleSave = React.useCallback(async () => {
     if (!config) return;
     setSaving(true);
     setError(null);
     try {
       const result = await saveDeviceConfig(config);
-      setConfig(result.config);
+      setConfig(withDefaultConnectionFields(result.config));
       setComputed(result.computed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save config.");
+      setError(normalizeClientError(err));
     } finally {
       setSaving(false);
     }
@@ -336,12 +457,13 @@ function DeviceControlPage() {
       setSaving(true);
       setError(null);
       try {
-        setConfig(updatedConfig);
-        const result = await saveDeviceConfig(updatedConfig);
-        setConfig(result.config);
+        const merged = withDefaultConnectionFields(updatedConfig);
+        setConfig(merged);
+        const result = await saveDeviceConfig(merged);
+        setConfig(withDefaultConnectionFields(result.config));
         setComputed(result.computed);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save calibration.");
+        setError(normalizeClientError(err));
       } finally {
         setSaving(false);
       }
@@ -353,19 +475,19 @@ function DeviceControlPage() {
     setUiMode("simple");
     if (!config) return;
     if (config.serial.rotation_backend === "arduino_grbl") return;
-    const updated: DeviceConfigDto = {
+    const updated = withDefaultConnectionFields({
       ...config,
       serial: { ...config.serial, rotation_backend: "arduino_grbl" },
-    };
+    });
     setSaving(true);
     setError(null);
     try {
       setConfig(updated);
       const result = await saveDeviceConfig(updated);
-      setConfig(result.config);
+      setConfig(withDefaultConnectionFields(result.config));
       setComputed(result.computed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to switch to simple mode backend.");
+      setError(normalizeClientError(err));
     } finally {
       setSaving(false);
     }
@@ -387,7 +509,7 @@ function DeviceControlPage() {
       setPatterns(saved);
       setPatternSaveName("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save pattern.");
+      setError(normalizeClientError(err));
     } finally {
       setSaving(false);
     }
@@ -398,20 +520,39 @@ function DeviceControlPage() {
     if (p) setCurrentWaypoints(p.waypoints);
   }, [patterns, patternLoadId]);
 
-  const sendCommand = React.useCallback(async (command: DeviceCommandDto) => {
-    setCommandError(null);
-    setCommandBusy(true);
-    try {
-      await sendDeviceCommand(command);
-    } catch (err) {
-      setCommandError(err instanceof Error ? err.message : "Command failed.");
-    } finally {
-      setCommandBusy(false);
-    }
-  }, []);
+  const sendCommand = React.useCallback(
+    async (command: DeviceCommandDto) => {
+      setCommandError(null);
+      setCommandBusy(true);
+      try {
+        const res = await sendDeviceCommand(command);
+        const asyncSweep =
+          command.type === "pattern_start" &&
+          Boolean(res.sent && typeof res.sent === "object" && res.sent.running_async === true);
+        setLastCommandAck(
+          `${new Date().toLocaleTimeString()} — ${command.type} acknowledged by API` +
+            (asyncSweep ? " (sweep continues on server; watch status below)" : "")
+        );
+        await refreshStatus();
+      } catch (err) {
+        setLastCommandAck(null);
+        setCommandError(normalizeClientError(err));
+        await refreshStatus();
+      } finally {
+        setCommandBusy(false);
+      }
+    },
+    [refreshStatus]
+  );
 
   const updateConfig = React.useCallback((updater: (prev: DeviceConfigDto) => DeviceConfigDto) => {
     setConfig((prev) => (prev ? updater(prev) : prev));
+  }, []);
+
+  const refreshSerialPorts = React.useCallback(() => {
+    getSerialPorts()
+      .then(setSerialPorts)
+      .catch(() => {});
   }, []);
 
   const updateNumber = (value: string, onUpdate: (num: number) => void) => {
@@ -429,19 +570,177 @@ function DeviceControlPage() {
 
   const lastUpdateLabel =
     status?.last_update != null ? new Date(status.last_update).toLocaleTimeString() : "—";
+  const hasPicoPort = Boolean(config?.serial.pico_port?.trim());
+  const hasLinearPort = Boolean(config?.serial.linear_port?.trim());
+  const sweepPortsMissing =
+    config?.serial.rotation_backend === "arduino_grbl"
+      ? !hasPicoPort || !hasLinearPort
+      : !hasPicoPort;
 
-  const jogStart = React.useCallback(
-    (axis: "linear" | "rotation", direction: number) => {
-      sendCommand({ type: "jog", axis, value: direction });
+  const handleXdaEnableDrive = React.useCallback(async (enblValue: 0 | 1 | 2 | 3) => {
+    setCommandError(null);
+    try {
+      const res = await xdaEnableDriveNow(enblValue);
+      const effective = typeof res.enbl === "number" ? res.enbl : enblValue;
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — XDA ENBL=${effective} sent`);
+      await Promise.all([refreshStatus(), refreshXdaDiag(), refreshXdaToolsState()]);
+    } catch (err) {
+      setCommandError(normalizeClientError(err));
+    }
+  }, [refreshStatus, refreshXdaDiag, refreshXdaToolsState]);
+
+  const handleXdaRunIndex = React.useCallback(async () => {
+    setCommandError(null);
+    try {
+      await xdaRunIndexNow();
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — XDA INDX command sent`);
+      await Promise.all([refreshStatus(), refreshXdaDiag(), refreshXdaToolsState()]);
+    } catch (err) {
+      setCommandError(normalizeClientError(err));
+    }
+  }, [refreshStatus, refreshXdaDiag, refreshXdaToolsState]);
+
+  const handleSetAxisPrefix = React.useCallback(async (enabled: boolean) => {
+    setCommandError(null);
+    try {
+      const next = await setXdaAxisPrefix(enabled);
+      setXdaToolsState(next);
+      setLastCommandAck(
+        `${new Date().toLocaleTimeString()} — XDA command prefix: ${next.axis_prefix_enabled ? "axis ON (X:...)" : "axis OFF (...)" }`
+      );
+      await Promise.all([refreshStatus(), refreshXdaDiag(), refreshXdaToolsState()]);
+    } catch (err) {
+      setCommandError(normalizeClientError(err));
+    }
+  }, [refreshStatus, refreshXdaDiag, refreshXdaToolsState]);
+
+  const runXdaPanelAction = React.useCallback(
+    async (action: () => Promise<void>) => {
+      setCommandError(null);
+      setXdaPanelBusy(true);
+      try {
+        await action();
+        await Promise.all([refreshStatus(), refreshXdaDiag(), refreshXdaToolsState()]);
+      } catch (err) {
+        setCommandError(normalizeClientError(err));
+      } finally {
+        setXdaPanelBusy(false);
+      }
     },
-    [sendCommand]
+    [refreshStatus, refreshXdaDiag, refreshXdaToolsState]
   );
-  const jogStop = React.useCallback(
-    (axis: "linear" | "rotation") => {
-      sendCommand({ type: "jog_stop", axis });
-    },
-    [sendCommand]
-  );
+
+  const handleXdaConnect = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaConnect({
+        port: xdaPort.trim() || undefined,
+        baud: xdaBaud,
+        axis: xdaAxis.trim() || undefined,
+      });
+      setLastCommandAck(
+        `${new Date().toLocaleTimeString()} — XDA connected (${res.axis ?? xdaAxis.toUpperCase()}, STAT=${res.stat ?? "?"}, EPOS=${res.epos ?? "?"})`
+      );
+    });
+  }, [runXdaPanelAction, xdaPort, xdaBaud, xdaAxis]);
+
+  const handleXdaDisconnect = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      await xdaDisconnect();
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — XDA disconnected`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaStop = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      await xdaStopNow();
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — XDA STOP sent`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaReset = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      await xdaResetNow();
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — XDA RESET sent`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaSetSpeed = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaSetSpeed(xdaSpeedUnits);
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — ${res.axis ?? xdaAxis.toUpperCase()}:SSPD=${res.speed_units ?? xdaSpeedUnits}`);
+    });
+  }, [runXdaPanelAction, xdaSpeedUnits, xdaAxis]);
+
+  const handleXdaMoveMm = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaStepMm(xdaRelativeMm, xdaCountsPerMm, xdaInvertDirection);
+      setLastCommandAck(
+        `${new Date().toLocaleTimeString()} — STEP(mm): ${xdaRelativeMm} mm -> ${res.step_counts ?? "?"} counts`
+      );
+    });
+  }, [runXdaPanelAction, xdaRelativeMm, xdaCountsPerMm, xdaInvertDirection]);
+
+  const handleXdaMoveCounts = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaStepCounts(xdaRelativeCounts);
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — STEP=${res.step_counts ?? xdaRelativeCounts}`);
+    });
+  }, [runXdaPanelAction, xdaRelativeCounts]);
+
+  const handleXdaGotoMm = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaMoveAbsMm(xdaAbsoluteMm, xdaCountsPerMm, xdaInvertDirection);
+      setLastCommandAck(
+        `${new Date().toLocaleTimeString()} — DPOS(mm): ${xdaAbsoluteMm} mm -> ${res.target_counts ?? "?"} counts`
+      );
+    });
+  }, [runXdaPanelAction, xdaAbsoluteMm, xdaCountsPerMm, xdaInvertDirection]);
+
+  const handleXdaSetInfo = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaSetInfoMode(xdaInfoMode);
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — INFO=${res.info_mode ?? xdaInfoMode}`);
+    });
+  }, [runXdaPanelAction, xdaInfoMode]);
+
+  const handleXdaInfoZero = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      await xdaSetInfoMode(0);
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — INFO=0`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaReadEpos = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaQuery("EPOS");
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — EPOS=${res.value ?? "timeout"}`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaReadStat = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaQuery("STAT");
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — STAT=${res.value ?? "timeout"}`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaReadFreq = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const res = await xdaQuery("FREQ");
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — FREQ=${res.value ?? "timeout"}`);
+    });
+  }, [runXdaPanelAction]);
+
+  const handleXdaSendRaw = React.useCallback(async () => {
+    await runXdaPanelAction(async () => {
+      const cmd = xdaRawCommand.trim();
+      if (!cmd) {
+        throw new Error("Raw command is empty.");
+      }
+      const res = await xdaSendRaw(cmd);
+      setLastCommandAck(`${new Date().toLocaleTimeString()} — raw sent: ${res.sent ?? cmd}`);
+    });
+  }, [runXdaPanelAction, xdaRawCommand]);
 
   const runSweepProgram = React.useCallback(async () => {
     const minX = Math.min(sweepXMin, sweepXMax);
@@ -611,8 +910,8 @@ function DeviceControlPage() {
 
   if (error && !config) {
     return (
-      <section role="alert" className="space-y-2">
-        <p className="text-destructive">{error}</p>
+      <section className="space-y-3" aria-label="Device control load error">
+        <ApiErrorPanel title="Could not load device control" message={error} />
         <Button variant="outline" onClick={() => window.location.reload()}>
           <span data-lang="pl">Odśwież</span>
           <span data-lang="en">Refresh</span>
@@ -625,6 +924,254 @@ function DeviceControlPage() {
 
   return (
     <section className="space-y-8" aria-label="Device control">
+      <section
+        className="rounded-lg border border-border bg-card p-4"
+        aria-label="USB serial and motion backend"
+      >
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">
+              <span data-lang="pl">Połączenie USB / porty COM</span>
+              <span data-lang="en">USB connection / COM ports</span>
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              <span data-lang="pl">
+                Domyślny układ: Arduino / GRBL (obrót) + XDA (oś liniowa). Porty: COM20 (Arduino), COM22 (XDA), baud
+                115200. Zapis: /api/device/config-merge (PUT lub POST).
+              </span>
+              <span data-lang="en">
+                Default setup: Arduino / GRBL (rotation) + XDA (linear). Ports: COM20 (Arduino), COM22 (XDA), baud 115200.
+                Save uses /api/device/config-merge (PUT or POST).
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={refreshSerialPorts}>
+              <span data-lang="pl">Odśwież listę portów</span>
+              <span data-lang="en">Refresh port list</span>
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              <span data-lang="pl">Zapisz połączenie</span>
+              <span data-lang="en">Save connection</span>
+            </Button>
+          </div>
+        </header>
+
+        <div className="mt-4 grid gap-6 lg:grid-cols-2">
+          <fieldset className="grid gap-3">
+            <legend className="text-sm font-medium">
+              <span data-lang="pl">Szeregowy / backend</span>
+              <span data-lang="en">Serial / backend</span>
+            </legend>
+            <div className="grid gap-2">
+              <Label htmlFor="conn-rotation-backend">Motion backend</Label>
+              <select
+                id="conn-rotation-backend"
+                value={config.serial.rotation_backend ?? "arduino_grbl"}
+                onChange={(e) =>
+                  updateConfig((prev) => ({
+                    ...prev,
+                    serial: {
+                      ...prev.serial,
+                      rotation_backend: (e.target.value as "pico" | "arduino_grbl") ?? "arduino_grbl",
+                    },
+                  }))
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="arduino_grbl">Arduino / GRBL (CNC shield)</option>
+                <option value="pico">Pico (JSON protocol)</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="conn-pico-port">
+                {config.serial.rotation_backend === "arduino_grbl" ? (
+                  <>
+                    <span data-lang="pl">Port USB obrotu (Arduino / GRBL)</span>
+                    <span data-lang="en">Rotation USB (Arduino / GRBL)</span>
+                  </>
+                ) : (
+                  <>
+                    <span data-lang="pl">Port kontrolera (Pico)</span>
+                    <span data-lang="en">Controller port (Pico)</span>
+                  </>
+                )}
+              </Label>
+              <select
+                id="conn-pico-port"
+                value={config.serial.pico_port ?? ""}
+                onChange={(e) =>
+                  updateConfig((prev) => ({
+                    ...prev,
+                    serial: { ...prev.serial, pico_port: e.target.value || null },
+                  }))
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="">— Select port —</option>
+                {serialPorts.map((p) => (
+                  <option key={p.port} value={p.port}>
+                    {p.port} {p.description ? `(${p.description})` : ""}
+                  </option>
+                ))}
+                {config.serial.pico_port &&
+                  !serialPorts.some((p) => p.port === config.serial.pico_port) && (
+                    <option value={config.serial.pico_port}>{config.serial.pico_port}</option>
+                  )}
+              </select>
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">
+                  <span data-lang="pl">Lub wpisz ręcznie (np. COM20):</span>
+                  <span data-lang="en">Or type manually (e.g. COM20):</span>
+                </span>
+                <Input
+                  placeholder="COM20"
+                  value={
+                    config.serial.pico_port && serialPorts.some((p) => p.port === config.serial.pico_port)
+                      ? ""
+                      : (config.serial.pico_port ?? "")
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value.trim() || null;
+                    updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, pico_port: v } }));
+                  }}
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="conn-pico-baud">
+                {config.serial.rotation_backend === "arduino_grbl" ? (
+                  <>
+                    <span data-lang="pl">Baud obrotu (Arduino)</span>
+                    <span data-lang="en">Rotation baud (Arduino)</span>
+                  </>
+                ) : (
+                  <>
+                    <span data-lang="pl">Baud kontrolera</span>
+                    <span data-lang="en">Controller baud</span>
+                  </>
+                )}
+              </Label>
+              <Input
+                id="conn-pico-baud"
+                type="number"
+                value={config.serial.pico_baud}
+                onChange={(e) =>
+                  updateNumber(e.target.value, (num) =>
+                    updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, pico_baud: num } }))
+                  )
+                }
+              />
+            </div>
+            {config.serial.rotation_backend === "arduino_grbl" && (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="conn-linear-port">
+                    <span data-lang="pl">Port USB liniowy (XDA / XLA-1)</span>
+                    <span data-lang="en">Linear USB (XDA / XLA-1)</span>
+                  </Label>
+                  <select
+                    id="conn-linear-port"
+                    value={config.serial.linear_port ?? ""}
+                    onChange={(e) =>
+                      updateConfig((prev) => ({
+                        ...prev,
+                        serial: { ...prev.serial, linear_port: e.target.value || null },
+                      }))
+                    }
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  >
+                    <option value="">— Select port —</option>
+                    {serialPorts.map((p) => (
+                      <option key={p.port} value={p.port}>
+                        {p.port} {p.description ? `(${p.description})` : ""}
+                      </option>
+                    ))}
+                    {config.serial.linear_port &&
+                      !serialPorts.some((p) => p.port === config.serial.linear_port) && (
+                        <option value={config.serial.linear_port}>{config.serial.linear_port}</option>
+                      )}
+                  </select>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">
+                      <span data-lang="pl">Lub wpisz ręcznie (np. COM22):</span>
+                      <span data-lang="en">Or type manually (e.g. COM22):</span>
+                    </span>
+                    <Input
+                      placeholder="COM22"
+                      value={
+                        config.serial.linear_port &&
+                        serialPorts.some((p) => p.port === config.serial.linear_port)
+                          ? ""
+                          : (config.serial.linear_port ?? "")
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value.trim() || null;
+                        updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, linear_port: v } }));
+                      }}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="conn-linear-baud">
+                    <span data-lang="pl">Baud liniowy (XDA)</span>
+                    <span data-lang="en">Linear baud (XDA)</span>
+                  </Label>
+                  <Input
+                    id="conn-linear-baud"
+                    type="number"
+                    value={config.serial.linear_baud ?? DEFAULT_SERIAL_BAUD}
+                    onChange={(e) =>
+                      updateNumber(e.target.value, (num) =>
+                        updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, linear_baud: num } }))
+                      )
+                    }
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  <span data-lang="pl">
+                    Arduino + XDA: dwa porty USB — GRBL na obroty, protokół ASCII XD-OEM na oś liniową.
+                  </span>
+                  <span data-lang="en">
+                    Arduino + XDA: two USB ports — GRBL for rotation, XD-OEM ASCII for linear axis.
+                  </span>
+                </p>
+              </>
+            )}
+          </fieldset>
+          <div className="rounded-md border border-dashed border-border/80 bg-muted/20 p-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              <span data-lang="pl">Wskazówki</span>
+              <span data-lang="en">Hints</span>
+            </p>
+            <ul className="mt-2 list-inside list-disc space-y-1">
+              <li>
+                <span data-lang="pl">
+                  Uruchom API: w folderze LaserXe/backend uruchom start-api.ps1 (albo uvicorn stamtąd). Sprawdź
+                  http://localhost:8000/health — musi być laserxe_device_config_merge: true.
+                </span>
+                <span data-lang="en">
+                  Start the API: in LaserXe/backend run start-api.ps1 (or uvicorn from that folder). Open
+                  http://localhost:8000/health — you must see laserxe_device_config_merge: true.
+                </span>
+              </li>
+              <li>
+                <span data-lang="pl">Tylko jedna aplikacja może trzymać dany COM otwarty (np. zamknij Serial Monitor).</span>
+                <span data-lang="en">Only one app can hold a COM port open (e.g. close Arduino Serial Monitor).</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4">
+            <ApiErrorPanel title="Configuration or save error" message={error} />
+          </div>
+        )}
+      </section>
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Button
           variant="destructive"
@@ -668,25 +1215,42 @@ function DeviceControlPage() {
             <p className="text-sm text-muted-foreground">
               <span data-lang="pl">Połączenie i pozycje osi w czasie rzeczywistym.</span>
               <span data-lang="en">Connection and axis positions in real time.</span>
+              {!streamConnected && (
+                <>
+                  {" "}
+                  <span data-lang="pl">Bez streamu status odświeża się co ~2 s.</span>
+                  <span data-lang="en">Without the stream, status refreshes about every 2s.</span>
+                </>
+              )}
             </p>
           </div>
-          <span
-            className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-              streamConnected ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-700"
-            }`}
-          >
-            {streamConnected ? (
-              <>
-                <span data-lang="pl">Stream aktywny</span>
-                <span data-lang="en">Stream active</span>
-              </>
-            ) : (
-              <>
-                <span data-lang="pl">Brak streamu</span>
-                <span data-lang="en">No stream</span>
-              </>
-            )}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshStatus()}>
+              <span data-lang="pl">Odśwież status</span>
+              <span data-lang="en">Refresh status</span>
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshXdaDiag()}>
+              <span data-lang="pl">Odśwież log XDA</span>
+              <span data-lang="en">Refresh XDA log</span>
+            </Button>
+            <span
+              className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+                streamConnected ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-700"
+              }`}
+            >
+              {streamConnected ? (
+                <>
+                  <span data-lang="pl">Stream aktywny</span>
+                  <span data-lang="en">Stream active</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Brak streamu</span>
+                  <span data-lang="en">No stream</span>
+                </>
+              )}
+            </span>
+          </div>
         </header>
 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -722,6 +1286,12 @@ function DeviceControlPage() {
               <span data-lang="en">Connected: </span>
               {status?.connected ? "yes" : "no"}
             </p>
+            {status?.sweep_program_running ? (
+              <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200">
+                <span data-lang="pl">Program sweep na serwerze: działa (sprawdź błędy poniżej).</span>
+                <span data-lang="en">Sweep program on server: running (check errors below).</span>
+              </p>
+            ) : null}
             {status?.firmware_version && (
               <p className="text-xs text-muted-foreground">
                 FW: {status.firmware_version}
@@ -733,95 +1303,262 @@ function DeviceControlPage() {
               {lastUpdateLabel}
             </p>
             {status?.last_error && (
-              <p className="text-xs text-destructive">{status.last_error}</p>
+              <div className="mt-2">
+                <ApiErrorPanel
+                  title="Controller / serial reported (live status)"
+                  message={[
+                    "This text comes from the rotation (GRBL) or linear (XDA) hardware path, not from the last HTTP request.",
+                    "Check COM ports, baud rates, USB cable, and power to the drivers.",
+                    "",
+                    status.last_error,
+                  ].join("\n")}
+                />
+              </div>
             )}
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-4">
+      <section className="rounded-lg border border-border bg-card p-4">
+        <header className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold">
-            <span data-lang="pl">Sterowanie liniowe</span>
-            <span data-lang="en">Linear control</span>
+            <span data-lang="pl">Log komunikacji XDA / XLA-1</span>
+            <span data-lang="en">XDA / XLA-1 communication log</span>
           </h3>
-          <div className="mt-4 grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="linear-target">Target (mm)</Label>
-              <Input
-                id="linear-target"
-                type="number"
-                step="0.01"
-                value={linearTarget}
-                onChange={(e) => updateNumber(e.target.value, setLinearTarget)}
-              />
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshXdaDiag()}>
+              <span data-lang="pl">Odśwież</span>
+              <span data-lang="en">Refresh</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowXdaLog((v) => !v)}
+            >
+              {showXdaLog ? (
+                <>
+                  <span data-lang="pl">Ukryj</span>
+                  <span data-lang="en">Hide</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Pokaż</span>
+                  <span data-lang="en">Show</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </header>
+        {showXdaLog && (
+          <div className="mt-3">
+            {xdaToolsState && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                mode: axis-prefix={String(xdaToolsState.axis_prefix_enabled)} | jog-open-loop=
+                {String(xdaToolsState.jog_open_loop)}
+              </p>
+            )}
+            <p className="mb-2 text-sm text-muted-foreground">
+              <span data-lang="pl">Widoczne ostatnie {Math.min(1000, xdaDiagLines.length)} z {xdaDiagLines.length} linii.</span>
+              <span data-lang="en">Showing last {Math.min(1000, xdaDiagLines.length)} of {xdaDiagLines.length} lines.</span>
+            </p>
+            <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted/40 p-3 text-sm leading-6">
+              {(xdaDiagLines.length > 0
+                ? xdaDiagLines.slice(-1000).join("\n")
+                : "No XDA serial lines yet. Send a linear command (jog/move), then refresh.")
+                .trim()}
+            </pre>
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4 lg:p-5">
+          <h3 className="text-lg font-semibold">
+            <span data-lang="pl">Xeryon XD-OEM - panel liniowy</span>
+            <span data-lang="en">Xeryon XD-OEM - linear panel</span>
+          </h3>
+          <div className="mt-3 space-y-3">
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connection</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="grid gap-1">
+                  <Label htmlFor="xda-port" className="text-xs">Port</Label>
+                  <Input id="xda-port" className="h-8" value={xdaPort} onChange={(e) => setXdaPort(e.target.value)} />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="xda-baud" className="text-xs">Baud</Label>
+                  <Input
+                    id="xda-baud"
+                    className="h-8"
+                    type="number"
+                    value={xdaBaud}
+                    onChange={(e) => updateInt(e.target.value, setXdaBaud)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="xda-axis" className="text-xs">Axis</Label>
+                  <Input
+                    id="xda-axis"
+                    className="h-8"
+                    value={xdaAxis}
+                    maxLength={1}
+                    onChange={(e) => setXdaAxis(e.target.value.toUpperCase().slice(0, 1))}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="xda-counts" className="text-xs">Counts/mm</Label>
+                  <Input
+                    id="xda-counts"
+                    className="h-8"
+                    type="number"
+                    min={1}
+                    value={xdaCountsPerMm}
+                    onChange={(e) => updateNumber(e.target.value, setXdaCountsPerMm)}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={xdaInvertDirection}
+                      onChange={(e) => setXdaInvertDirection(e.target.checked)}
+                    />
+                    Invert direction
+                  </label>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaConnect()} disabled={xdaPanelBusy}>
+                  Connect
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaDisconnect()} disabled={xdaPanelBusy}>
+                  Disconnect
+                </Button>
+                <label className="ml-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(xdaToolsState?.axis_prefix_enabled)}
+                    onChange={(e) => void handleSetAxisPrefix(e.target.checked)}
+                    disabled={xdaPanelBusy || !xdaToolsState}
+                  />
+                  Use axis prefix (`X:...`)
+                </label>
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="linear-step">Step (mm)</Label>
-              <Input
-                id="linear-step"
-                type="number"
-                step="0.01"
-                value={linearStep}
-                onChange={(e) => updateNumber(e.target.value, setLinearStep)}
-              />
+
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Motion</p>
+              <div className="mb-2 flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaEnableDrive(1)} disabled={xdaPanelBusy}>
+                  Enable
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaRunIndex()} disabled={xdaPanelBusy}>
+                  Find Index
+                </Button>
+                <Button type="button" size="sm" variant="destructive" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaStop()} disabled={xdaPanelBusy}>
+                  Stop
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaReset()} disabled={xdaPanelBusy}>
+                  Reset
+                </Button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+                <Input
+                  className="h-8"
+                  type="number"
+                  value={xdaSpeedUnits}
+                  onChange={(e) => updateInt(e.target.value, setXdaSpeedUnits)}
+                  placeholder="Speed (um/s)"
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 w-full justify-center" onClick={() => void handleXdaSetSpeed()} disabled={xdaPanelBusy}>
+                  Set Speed
+                </Button>
+              </div>
+
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+                <Input
+                  className="h-8"
+                  type="number"
+                  step="0.01"
+                  value={xdaRelativeMm}
+                  onChange={(e) => updateNumber(e.target.value, setXdaRelativeMm)}
+                  placeholder="Relative mm"
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 w-full justify-center" onClick={() => void handleXdaMoveMm()} disabled={xdaPanelBusy}>
+                  Move mm
+                </Button>
+              </div>
+
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+                <Input
+                  className="h-8"
+                  type="number"
+                  value={xdaRelativeCounts}
+                  onChange={(e) => updateInt(e.target.value, setXdaRelativeCounts)}
+                  placeholder="Relative counts"
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 w-full justify-center" onClick={() => void handleXdaMoveCounts()} disabled={xdaPanelBusy}>
+                  Move counts
+                </Button>
+              </div>
+
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+                <Input
+                  className="h-8"
+                  type="number"
+                  step="0.01"
+                  value={xdaAbsoluteMm}
+                  onChange={(e) => updateNumber(e.target.value, setXdaAbsoluteMm)}
+                  placeholder="Absolute mm"
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 w-full justify-center" onClick={() => void handleXdaGotoMm()} disabled={xdaPanelBusy}>
+                  Go to mm
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() =>
-                  sendCommand({ type: "move_abs", axis: "linear", value: linearTarget, unit: "mm" })
-                }
-                disabled={commandBusy}
-              >
-                <span data-lang="pl">Jedź do</span>
-                <span data-lang="en">Move abs</span>
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  sendCommand({ type: "move_rel", axis: "linear", value: linearStep, unit: "mm" })
-                }
-                disabled={commandBusy}
-              >
-                <span data-lang="pl">Krok</span>
-                <span data-lang="en">Move rel</span>
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => sendCommand({ type: "home", axis: "linear" })}
-                disabled={commandBusy}
-                className={uiMode === "simple" ? "hidden" : ""}
-              >
-                <span data-lang="pl">Home</span>
-                <span data-lang="en">Home</span>
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => sendCommand({ type: "stop", axis: "linear" })}
-                disabled={commandBusy}
-                className={uiMode === "simple" ? "hidden" : ""}
-              >
-                <span data-lang="pl">Stop</span>
-                <span data-lang="en">Stop</span>
-              </Button>
-              <Button
-                variant="outline"
-                onMouseDown={() => jogStart("linear", -1)}
-                onMouseUp={() => jogStop("linear")}
-                onMouseLeave={() => jogStop("linear")}
-              >
-                − <span data-lang="pl">Jog</span>
-                <span data-lang="en">Jog</span>
-              </Button>
-              <Button
-                variant="outline"
-                onMouseDown={() => jogStart("linear", 1)}
-                onMouseUp={() => jogStop("linear")}
-                onMouseLeave={() => jogStop("linear")}
-              >
-                + <span data-lang="pl">Jog</span>
-                <span data-lang="en">Jog</span>
-              </Button>
+
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback / Queries</p>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <Input
+                  className="h-8"
+                  type="number"
+                  value={xdaInfoMode}
+                  min={0}
+                  max={7}
+                  onChange={(e) => updateInt(e.target.value, setXdaInfoMode)}
+                  placeholder="INFO mode"
+                />
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaSetInfo()} disabled={xdaPanelBusy}>
+                  Set INFO
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaInfoZero()} disabled={xdaPanelBusy}>
+                  INFO=0
+                </Button>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaReadEpos()} disabled={xdaPanelBusy}>
+                  Read EPOS
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaReadStat()} disabled={xdaPanelBusy}>
+                  Read STAT
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 min-w-[7.5rem] justify-center" onClick={() => void handleXdaReadFreq()} disabled={xdaPanelBusy}>
+                  Read FREQ
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Raw Command</p>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+                <Input className="h-8" value={xdaRawCommand} onChange={(e) => setXdaRawCommand(e.target.value)} />
+                <Button type="button" size="sm" variant="outline" className="h-8 w-full justify-center" onClick={() => void handleXdaSendRaw()} disabled={xdaPanelBusy}>
+                  Send Raw
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -891,21 +1628,31 @@ function DeviceControlPage() {
               </Button>
               <Button
                 variant="outline"
-                onMouseDown={() => jogStart("rotation", -1)}
-                onMouseUp={() => jogStop("rotation")}
-                onMouseLeave={() => jogStop("rotation")}
+                onClick={() =>
+                  sendCommand({
+                    type: "move_rel",
+                    axis: "rotation",
+                    value: -ROTATION_NUDGE_DEG,
+                    unit: "deg",
+                  })
+                }
+                disabled={commandBusy}
               >
-                − <span data-lang="pl">Jog</span>
-                <span data-lang="en">Jog</span>
+                −{ROTATION_NUDGE_DEG} deg
               </Button>
               <Button
                 variant="outline"
-                onMouseDown={() => jogStart("rotation", 1)}
-                onMouseUp={() => jogStop("rotation")}
-                onMouseLeave={() => jogStop("rotation")}
+                onClick={() =>
+                  sendCommand({
+                    type: "move_rel",
+                    axis: "rotation",
+                    value: ROTATION_NUDGE_DEG,
+                    unit: "deg",
+                  })
+                }
+                disabled={commandBusy}
               >
-                + <span data-lang="pl">Jog</span>
-                <span data-lang="en">Jog</span>
+                +{ROTATION_NUDGE_DEG} deg
               </Button>
             </div>
           </div>
@@ -914,10 +1661,32 @@ function DeviceControlPage() {
 
       {uiMode === "simple" && (
       <section className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-lg font-semibold">
-          <span data-lang="pl">Program skanowania (prosty)</span>
-          <span data-lang="en">Sweep program (simple)</span>
-        </h3>
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold">
+            <span data-lang="pl">Program skanowania (prosty)</span>
+            <span data-lang="en">Sweep program (simple)</span>
+          </h3>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSweepProgram((v) => !v)}
+          >
+            {showSweepProgram ? (
+              <>
+                <span data-lang="pl">Ukryj</span>
+                <span data-lang="en">Hide</span>
+              </>
+            ) : (
+              <>
+                <span data-lang="pl">Pokaż</span>
+                <span data-lang="en">Show</span>
+              </>
+            )}
+          </Button>
+        </header>
+        {showSweepProgram && (
+        <>
         <p className="mt-1 text-xs text-muted-foreground">
           <span data-lang="pl">
             Sekwencja: sweep X min→max z postojami, obrót R, sweep max→min z postojami, obrót R; powtórz N razy.
@@ -953,7 +1722,13 @@ function DeviceControlPage() {
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button onClick={() => void runSweepProgram()} disabled={commandBusy}>
+          <Button
+            onClick={() => void runSweepProgram()}
+            disabled={
+              commandBusy ||
+              sweepPortsMissing
+            }
+          >
             <span data-lang="pl">Uruchom program</span>
             <span data-lang="en">Run program</span>
           </Button>
@@ -1101,6 +1876,8 @@ function DeviceControlPage() {
             </div>
           </div>
         </div>
+        </>
+        )}
       </section>
       )}
 
@@ -1117,7 +1894,7 @@ function DeviceControlPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setLinearTarget(p.linear_mm);
+                setXdaAbsoluteMm(p.linear_mm);
                 setRotationTarget(p.rotation_deg);
                 sendCommand({ type: "move_abs", axis: "linear", value: p.linear_mm, unit: "mm" });
                 sendCommand({ type: "move_abs", axis: "rotation", value: p.rotation_deg, unit: "deg" });
@@ -1301,7 +2078,14 @@ function DeviceControlPage() {
       </section>
       )}
 
-      {commandError && <p className="text-sm text-destructive">{commandError}</p>}
+      {lastCommandAck && !commandError && (
+        <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-100">
+          {lastCommandAck}
+        </p>
+      )}
+      {commandError && (
+        <ApiErrorPanel title="Device command or motion failed" message={commandError} className="mt-2" />
+      )}
 
       {uiMode === "advanced" && (
       <section className="rounded-lg border border-border bg-card p-4">
@@ -1312,8 +2096,8 @@ function DeviceControlPage() {
               <span data-lang="en">Mechanism configuration</span>
             </h3>
             <p className="text-sm text-muted-foreground">
-              <span data-lang="pl">Ustawienia osi i portu USB kontrolera.</span>
-              <span data-lang="en">Axis settings and controller USB port.</span>
+              <span data-lang="pl">Oś liniowa, obrót, kalibracja. Porty COM i backend są w panelu na górze strony.</span>
+              <span data-lang="en">Linear axis, rotation, calibration. COM ports and backend are in the panel at the top.</span>
             </p>
           </div>
           <div className="flex gap-2">
@@ -1331,94 +2115,7 @@ function DeviceControlPage() {
           </div>
         </header>
 
-        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-
         <div className="mt-4 grid gap-6 lg:grid-cols-2">
-          <fieldset className="grid gap-3">
-            <legend className="text-sm font-medium">Serial</legend>
-            <div className="grid gap-2">
-              <Label htmlFor="rotation-backend">Motion backend</Label>
-              <select
-                id="rotation-backend"
-                value={config.serial.rotation_backend ?? "pico"}
-                onChange={(e) =>
-                  updateConfig((prev) => ({
-                    ...prev,
-                    serial: {
-                      ...prev.serial,
-                      rotation_backend: (e.target.value as "pico" | "arduino_grbl") ?? "pico",
-                    },
-                  }))
-                }
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-              >
-                <option value="pico">Pico (JSON protocol)</option>
-                <option value="arduino_grbl">Arduino / GRBL (CNC shield)</option>
-              </select>
-              <p className="text-xs text-muted-foreground">
-                <span data-lang="pl">Wybierz sterownik osi obrotu. Zmiana wymaga zapisania konfiguracji.</span>
-                <span data-lang="en">Select rotation controller backend. Save config after changing.</span>
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pico-port">Controller port</Label>
-              <select
-                id="pico-port"
-                value={config.serial.pico_port ?? ""}
-                onChange={(e) =>
-                  updateConfig((prev) => ({
-                    ...prev,
-                    serial: { ...prev.serial, pico_port: e.target.value || null },
-                  }))
-                }
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-              >
-                <option value="">— Select port —</option>
-                {serialPorts.map((p) => (
-                  <option key={p.port} value={p.port}>
-                    {p.port} {p.description ? `(${p.description})` : ""}
-                  </option>
-                ))}
-                {config.serial.pico_port &&
-                  !serialPorts.some((p) => p.port === config.serial.pico_port) && (
-                    <option value={config.serial.pico_port}>{config.serial.pico_port}</option>
-                  )}
-              </select>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">
-                  <span data-lang="pl">Lub wpisz ścieżkę ręcznie:</span>
-                  <span data-lang="en">Or type path manually:</span>
-                </span>
-                <Input
-                  placeholder="/dev/ttyACM0 or COM3"
-                  value={
-                    config.serial.pico_port && serialPorts.some((p) => p.port === config.serial.pico_port)
-                      ? ""
-                      : config.serial.pico_port ?? ""
-                  }
-                  onChange={(e) => {
-                    const v = e.target.value.trim() || null;
-                    updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, pico_port: v } }));
-                  }}
-                  className="text-sm"
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pico-baud">Controller baud</Label>
-              <Input
-                id="pico-baud"
-                type="number"
-                value={config.serial.pico_baud}
-                onChange={(e) =>
-                  updateNumber(e.target.value, (num) =>
-                    updateConfig((prev) => ({ ...prev, serial: { ...prev.serial, pico_baud: num } }))
-                  )
-                }
-              />
-            </div>
-          </fieldset>
-
           <fieldset className="grid gap-3">
             <legend className="text-sm font-medium">Linear (XLA-1)</legend>
             <div className="grid gap-2">

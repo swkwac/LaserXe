@@ -3,6 +3,7 @@
  * Uses apiFetch for auth and 401 redirect. Throws on create/update errors with API detail when available.
  */
 import { apiFetch } from "@/lib/api";
+import { fetchJsonOrThrow } from "@/lib/apiErrors";
 import type {
   IterationCreateCommand,
   IterationDto,
@@ -12,12 +13,9 @@ import type {
   SpotDto,
 } from "@/types";
 
-const DEFAULT_ERROR_CREATE = "Nie udało się wygenerować planu.";
-const DEFAULT_ERROR_STATUS = "Nie udało się zmienić statusu.";
-
 /**
  * Creates a new plan iteration for the given image. On success returns the iteration.
- * On 4xx/5xx throws Error with API detail message or default.
+ * On 4xx/5xx throws Error with long formatted API detail.
  */
 export async function createIteration(imageId: number, body: IterationCreateCommand): Promise<IterationDto> {
   const payload = {
@@ -27,27 +25,20 @@ export async function createIteration(imageId: number, body: IterationCreateComm
     algorithm_mode: body.algorithm_mode ?? "simple",
     ...(body.algorithm_mode === "simple" ? { grid_spacing_mm: body.grid_spacing_mm ?? 0.8 } : {}),
   };
-  const res = await apiFetch(`/api/images/${imageId}/iterations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const message = text
-      ? (() => {
-          try {
-            const data = JSON.parse(text) as { detail?: string };
-            return typeof data?.detail === "string" ? data.detail : DEFAULT_ERROR_CREATE;
-          } catch {
-            return DEFAULT_ERROR_CREATE;
-          }
-        })()
-      : DEFAULT_ERROR_CREATE;
-    throw new Error(message);
-  }
-  if (!text) throw new Error(DEFAULT_ERROR_CREATE);
-  return JSON.parse(text) as IterationDto;
+  const path = `/api/images/${imageId}/iterations`;
+  return fetchJsonOrThrow<IterationDto>(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      operation: `Create plan iteration for image id=${imageId}`,
+      path,
+      method: "POST",
+    }
+  );
 }
 
 /**
@@ -72,26 +63,20 @@ export async function updateIterationStatus(
   iterationId: number,
   status: "accepted" | "rejected"
 ): Promise<IterationDto> {
-  const res = await apiFetch(`/api/iterations/${iterationId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    let message = DEFAULT_ERROR_STATUS;
-    if (text) {
-      try {
-        const data = JSON.parse(text) as { detail?: string };
-        if (typeof data?.detail === "string") message = data.detail;
-      } catch {
-        // keep default
-      }
+  const path = `/api/iterations/${iterationId}`;
+  return fetchJsonOrThrow<IterationDto>(
+    path,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    },
+    {
+      operation: `Update iteration ${iterationId} status to "${status}"`,
+      path,
+      method: "PATCH",
     }
-    throw new Error(message);
-  }
-  if (!text) throw new Error(DEFAULT_ERROR_STATUS);
-  return JSON.parse(text) as IterationDto;
+  );
 }
 
 export interface PlanApiFetchOptions {
