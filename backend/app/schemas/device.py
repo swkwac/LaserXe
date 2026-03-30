@@ -22,10 +22,13 @@ class DeviceSerialConfigSchema(BaseModel):
 
     pico_port: str | None = None
     pico_baud: int = Field(115200, ge=1200, le=1_000_000)
-    rotation_backend: Literal["pico", "arduino_grbl"] = "pico"
+    rotation_backend: Literal["pico", "arduino_grbl", "arduino_step_dir"] = "arduino_step_dir"
     linear_port: str | None = Field(
         None,
-        description="XD-OEM (XLA-1) COM port when using Arduino/GRBL for rotation (second USB). Ignored with Pico backend.",
+        description=(
+            "XD-OEM (XLA-1) COM port when using Arduino rotation backend "
+            "(GRBL or CW/CCW text protocol) as a second USB. Ignored with Pico backend."
+        ),
     )
     linear_baud: int = Field(115200, ge=1200, le=1_000_000)
 
@@ -123,6 +126,7 @@ class DeviceCommandSchema(BaseModel):
 
     type: Literal[
         "home",
+        "set_home",
         "move_abs",
         "move_rel",
         "stop",
@@ -149,6 +153,9 @@ class DeviceCommandSchema(BaseModel):
         if self.type == "home":
             if self.axis is None:
                 raise ValueError("axis is required for home")
+        if self.type == "set_home":
+            if self.axis is None:
+                raise ValueError("axis is required for set_home")
         if self.type == "jog":
             if self.axis not in {"linear", "rotation"}:
                 raise ValueError("axis must be 'linear' or 'rotation' for jog")

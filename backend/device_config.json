@@ -2,7 +2,7 @@
   "serial": {
     "pico_port": "COM20",
     "pico_baud": 115200,
-    "rotation_backend": "arduino_grbl",
+    "rotation_backend": "arduino_step_dir",
     "linear_port": "COM22",
     "linear_baud": 115200
   },

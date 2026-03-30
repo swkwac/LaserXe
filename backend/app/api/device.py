@@ -85,6 +85,14 @@ class XdaQueryPayload(BaseModel):
     tag: str
 
 
+class RotationRawPayload(BaseModel):
+    command: str
+
+
+class RotationIdleTimeoutPayload(BaseModel):
+    seconds: float
+
+
 def _with_xda_overrides(base_config: Any, payload: XdaConnectPayload | None) -> Any:
     """Clone config and optionally override runtime XDA port/baud/axis (without saving to file)."""
     if payload is None:
@@ -249,6 +257,73 @@ def get_xda_diag(request: Request) -> dict[str, list[str]]:
     """Recent XDA serial lines for troubleshooting (TX/RX)."""
     _require_auth(request)
     return {"lines": device_manager.get_xda_diag()}
+
+
+@router.get("/rotation-diag")
+def get_rotation_diag(request: Request) -> dict[str, list[str]]:
+    """Recent Arduino rotation serial lines for troubleshooting (TX/RX)."""
+    _require_auth(request)
+    return {"lines": device_manager.get_rotation_diag()}
+
+
+@router.post("/rotation-tools/raw")
+def rotation_raw(payload: RotationRawPayload, request: Request) -> dict[str, Any]:
+    """Send a raw Arduino step-dir command (e.g. STARTUS=…, MINUS=…, RAMP=…, STAT?, CW90).
+
+    This is meant for the CW/CCW text firmware. GRBL users should configure speed via GRBL settings instead.
+    """
+    _require_auth(request)
+    config = load_device_config()
+    try:
+        return device_manager.rotation_send_raw_now(config, payload.command)
+    except Exception as exc:
+        # Reuse the existing HTTP error mapping style.
+        if isinstance(exc, DeviceConfigError):
+            detail: dict[str, Any] = (
+                exc.http_detail
+                if exc.http_detail is not None
+                else legacy_config_error_detail(str(exc), config, command_type="rotation_raw")
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+        if isinstance(exc, DeviceConnectionError):
+            detail503: dict[str, Any] = (
+                exc.http_detail
+                if exc.http_detail is not None
+                else connection_error_http_detail(str(exc), config, command_type="rotation_raw")
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail503) from exc
+        raise
+
+
+@router.get("/rotation-tools/idle-timeout")
+def rotation_idle_timeout_get(request: Request) -> dict[str, Any]:
+    _require_auth(request)
+    return device_manager.get_step_dir_idle_disable_seconds()
+
+
+@router.post("/rotation-tools/idle-timeout")
+def rotation_idle_timeout_set(payload: RotationIdleTimeoutPayload, request: Request) -> dict[str, Any]:
+    _require_auth(request)
+    config = load_device_config()
+    backend = config.serial.rotation_backend
+    if backend != "arduino_step_dir":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=legacy_config_error_detail(
+                "rotation idle timeout runtime setting is supported only for arduino_step_dir backend",
+                config,
+                command_type="rotation_idle_timeout",
+            ),
+        )
+    try:
+        return device_manager.set_step_dir_idle_disable_seconds(payload.seconds)
+    except DeviceConfigError as exc:
+        detail: dict[str, Any] = (
+            exc.http_detail
+            if exc.http_detail is not None
+            else legacy_config_error_detail(str(exc), config, command_type="rotation_idle_timeout")
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
 
 
 @router.get("/xda-tools")
@@ -496,7 +571,7 @@ async def device_stream(websocket: WebSocket) -> None:
     try:
         while True:
             config = load_device_config()
-            status_payload = device_manager.get_status(config).model_dump()
+            status_payload = device_manager.get_status(config).model_dump(mode="json")
             await websocket.send_json(status_payload)
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:

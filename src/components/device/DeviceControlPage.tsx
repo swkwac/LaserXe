@@ -11,6 +11,10 @@ import {
   getPresets,
   getSerialPorts,
   getDeviceStreamUrl,
+  getRotationDiag,
+  rotationSendRaw,
+  getRotationIdleTimeout,
+  setRotationIdleTimeout,
   getXdaDiag,
   getXdaToolsState,
   saveDeviceConfig,
@@ -85,39 +89,11 @@ function SweepXYPreview({
     }
     return { x: p.linear_mm, y: p.rotation_deg, dwell_ms: p.dwell_ms ?? 0 };
   });
-  const minX = Math.min(...pts.map((p) => p.x));
-  const maxX = Math.max(...pts.map((p) => p.x));
-  const minY = Math.min(...pts.map((p) => p.y));
-  const maxY = Math.max(...pts.map((p) => p.y));
-  // Equal-scale axes keep geometry readable (no ellipse distortion).
-  // In polar projection mode, anchor origin to true radius/angle origin (0,0).
-  let xMin: number;
-  let xMax: number;
-  let yMin: number;
-  let yMax: number;
-  if (mode === "polar_xy") {
-    const half = Math.max(
-      0.5,
-      Math.abs(minX),
-      Math.abs(maxX),
-      Math.abs(minY),
-      Math.abs(maxY)
-    );
-    xMin = -half;
-    xMax = half;
-    yMin = -half;
-    yMax = half;
-  } else {
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const halfX = Math.max(0.5, (maxX - minX) / 2);
-    const halfY = Math.max(0.5, (maxY - minY) / 2);
-    const half = Math.max(halfX, halfY);
-    xMin = cx - half;
-    xMax = cx + half;
-    yMin = cy - half;
-    yMax = cy + half;
-  }
+  // Fixed preview frame requested by user for easier visual comparison between runs.
+  const xMin = -15;
+  const xMax = 15;
+  const yMin = -15;
+  const yMax = 15;
 
   const sx = (x: number) => pad.left + ((x - xMin) / (xMax - xMin)) * plotW;
   const sy = (y: number) => pad.top + plotH - ((y - yMin) / (yMax - yMin)) * plotH;
@@ -148,6 +124,15 @@ function SweepXYPreview({
       {yMin <= 0 && yMax >= 0 && (
         <line x1={pad.left} y1={sy(0)} x2={pad.left + plotW} y2={sy(0)} stroke="currentColor" opacity={0.2} strokeDasharray="3 3" />
       )}
+      <circle
+        cx={sx(0)}
+        cy={sy(0)}
+        r={Math.abs(sx(12.5) - sx(0))}
+        fill="none"
+        stroke="#2563eb"
+        strokeWidth="1.6"
+        opacity={0.95}
+      />
       <path d={path} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       {pts.map((p, i) => {
         const dwell = (p.dwell_ms ?? 0) > 0;
@@ -209,6 +194,161 @@ function SweepXYPreview({
 /** Generic serial defaults; COM ports must be configured explicitly. */
 const DEFAULT_SERIAL_BAUD = 115200;
 const ROTATION_NUDGE_DEG = 1;
+const ROTATION_PRESET_VALUES = [5, 10, 15, 30, 90] as const;
+
+type SweepRotationFirstToward = "negative_limit" | "positive_limit";
+
+/**
+ * One pass across the configured rotation span: no “go to min then back through the same angles to max”.
+ * Backend HOME + approach moves the hardware to the first planned angle before the raster legs run.
+ */
+function monotonicRotationScheduleOneSpanCentered(
+  rotMin: number,
+  rotMax: number,
+  numLegs: number,
+  firstToward: SweepRotationFirstToward
+): number[] {
+  const span = rotMax - rotMin;
+  const n = Math.max(1, Math.floor(numLegs));
+  if (span < 1e-9 || n <= 1) {
+    return [rotMin + span / 2];
+  }
+  const laneStep = span / n;
+  const first = rotMin + laneStep / 2;
+  const out: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const t = i;
+    if (firstToward === "negative_limit") {
+      out.push(first + t * laneStep);
+    } else {
+      out.push(rotMax - laneStep / 2 - t * laneStep);
+    }
+  }
+  return out;
+}
+
+/** N linear sweeps: constant angle per sweep, then rotate by |R| toward the chosen limit (clamped). */
+function sweepRotationScheduleFixedRSteps(
+  rotMin: number,
+  rotMax: number,
+  numLegs: number,
+  rotateStepDeg: number,
+  firstToward: SweepRotationFirstToward
+): number[] {
+  const clampR = (a: number) => Math.min(rotMax, Math.max(rotMin, a));
+  const span = Math.max(0, rotMax - rotMin);
+  const mid = (rotMin + rotMax) / 2;
+  const stepMag = Math.abs(rotateStepDeg);
+  const n = numLegs + 1;
+  if (n < 1) return [clampR(rotMin)];
+  if (stepMag < 1e-9) {
+    const start = mid;
+    return Array.from({ length: n }, () => clampR(start));
+  }
+  const delta = firstToward === "negative_limit" ? stepMag : -stepMag;
+  // Keep both endpoints equally far from software limits whenever full-span is disabled.
+  const travel = Math.min(span, stepMag * numLegs);
+  const startForward = mid - travel / 2;
+  const start = firstToward === "negative_limit" ? startForward : mid + travel / 2;
+  const out: number[] = [];
+  let theta = start;
+  out.push(clampR(theta));
+  for (let k = 0; k < numLegs; k += 1) {
+    theta += delta;
+    out.push(clampR(theta));
+  }
+  return out;
+}
+
+function buildSweepWaypoints(params: {
+  minX: number;
+  maxX: number;
+  step: number;
+  repeats: number;
+  dwell: number;
+  sweepRotateDeg: number;
+  rotMin: number;
+  rotMax: number;
+  /** Min→max or max→min along the travel span (one monotonic pass). */
+  rotationFirstToward: SweepRotationFirstToward;
+  /** If true, leg count = ceil(span/|R|) only (N ignored). If false, exactly N sweeps with |R| between legs. */
+  rotationCoverFullTravel: boolean;
+}): DeviceWaypointDto[] {
+  const {
+    minX,
+    maxX,
+    step,
+    repeats,
+    dwell,
+    sweepRotateDeg,
+    rotMin,
+    rotMax,
+    rotationFirstToward,
+    rotationCoverFullTravel,
+  } = params;
+  // Keep sweep as symmetric around Y-axis as possible: use mirrored X span.
+  const halfX = Math.max(Math.abs(minX), Math.abs(maxX));
+  const lo = -halfX;
+  const hi = halfX;
+  const stepAbs = Math.abs(step);
+  const reps = Math.max(1, Math.floor(repeats));
+  const dw = Math.max(0, Math.floor(dwell));
+  if (stepAbs <= 0) return [];
+
+  const makeSweepStops = (from: number, to: number): number[] => {
+    const dir = to >= from ? 1 : -1;
+    const pts: number[] = [from];
+    let x = from;
+    while (true) {
+      const next = x + dir * stepAbs;
+      if ((dir > 0 && next >= to) || (dir < 0 && next <= to)) break;
+      pts.push(next);
+      x = next;
+    }
+    const last = pts[pts.length - 1];
+    if (Math.abs(last - to) > 1e-9) pts.push(to);
+    return pts;
+  };
+
+  const pathLenDeg = rotMax - rotMin;
+  const stepRotAbs = Math.abs(sweepRotateDeg);
+  const minRepsFromRotation =
+    stepRotAbs < 1e-9 ? 1 : Math.max(1, Math.ceil(pathLenDeg / stepRotAbs));
+  const repsEff = rotationCoverFullTravel
+    ? Math.min(400, minRepsFromRotation)
+    : Math.min(400, reps);
+
+  const legRotations = rotationCoverFullTravel
+    ? monotonicRotationScheduleOneSpanCentered(rotMin, rotMax, repsEff, rotationFirstToward)
+    : sweepRotationScheduleFixedRSteps(
+        rotMin,
+        rotMax,
+        repsEff,
+        sweepRotateDeg,
+        rotationFirstToward
+      );
+
+  let forward = true;
+  const waypoints: DeviceWaypointDto[] = [];
+
+  for (let i = 0; i < repsEff; i += 1) {
+    const rotation = legRotations[i] ?? legRotations[legRotations.length - 1];
+    const nextCornerRot = legRotations[i + 1] ?? rotation;
+    const from = forward ? lo : hi;
+    const to = forward ? hi : lo;
+    const sweepPts = makeSweepStops(from, to);
+    for (const x of sweepPts) {
+      waypoints.push({ linear_mm: x, rotation_deg: rotation, dwell_ms: dw });
+    }
+    // Avoid a blank/no-op corner at the very end.
+    if (i < repsEff - 1 && Math.abs(nextCornerRot - rotation) > 1e-9) {
+      waypoints.push({ linear_mm: to, rotation_deg: nextCornerRot, dwell_ms: 0 });
+    }
+    forward = !forward;
+  }
+
+  return waypoints;
+}
 
 function getLinearCountsPerMm(
   computed: DeviceConfigComputedDto | null,
@@ -225,7 +365,7 @@ function getLinearCountsPerMm(
 }
 
 function withDefaultConnectionFields(cfg: DeviceConfigDto): DeviceConfigDto {
-  const rb = cfg.serial.rotation_backend ?? "arduino_grbl";
+  const rb = cfg.serial.rotation_backend ?? "arduino_step_dir";
   return {
     ...cfg,
     serial: {
@@ -250,8 +390,12 @@ function DeviceControlPage() {
   const [lastCommandAck, setLastCommandAck] = React.useState<string | null>(null);
   const [streamConnected, setStreamConnected] = React.useState(false);
   const [showXdaLog, setShowXdaLog] = React.useState(true);
+  const [showRotationLog, setShowRotationLog] = React.useState(true);
+  const [showLinearControlPanel, setShowLinearControlPanel] = React.useState(true);
+  const [showRotationControlPanel, setShowRotationControlPanel] = React.useState(true);
   const [showSweepProgram, setShowSweepProgram] = React.useState(true);
   const [xdaDiagLines, setXdaDiagLines] = React.useState<string[]>([]);
+  const [rotationDiagLines, setRotationDiagLines] = React.useState<string[]>([]);
   const [xdaToolsState, setXdaToolsState] = React.useState<DeviceXdaToolsStateDto | null>(null);
   const [xdaPanelBusy, setXdaPanelBusy] = React.useState(false);
   const [xdaPort, setXdaPort] = React.useState("");
@@ -267,12 +411,21 @@ function DeviceControlPage() {
   const [xdaRawCommand, setXdaRawCommand] = React.useState("STEP=1250");
   const [rotationTarget, setRotationTarget] = React.useState(0);
   const [rotationStep, setRotationStep] = React.useState(5);
+  const [rotationStartUs, setRotationStartUs] = React.useState(1600);
+  const [rotationMinUs, setRotationMinUs] = React.useState(800);
+  const [rotationRampSteps, setRotationRampSteps] = React.useState(800);
+  const [rotationMicrosteps, setRotationMicrosteps] = React.useState(8);
+  const [rotationIdleDisableS, setRotationIdleDisableS] = React.useState(20);
   const [sweepXMin, setSweepXMin] = React.useState(-5);
   const [sweepXMax, setSweepXMax] = React.useState(5);
   const [sweepStepY, setSweepStepY] = React.useState(1);
   const [sweepDwellMs, setSweepDwellMs] = React.useState(200);
   const [sweepRotateDeg, setSweepRotateDeg] = React.useState(5);
   const [sweepRepeats, setSweepRepeats] = React.useState(4);
+  const [sweepRotationCoverFullTravel, setSweepRotationCoverFullTravel] =
+    React.useState(false);
+  const [sweepRotationFirstToward, setSweepRotationFirstToward] =
+    React.useState<SweepRotationFirstToward>("negative_limit");
   const [sweepSimPlaying, setSweepSimPlaying] = React.useState(false);
   const [sweepSimIndex, setSweepSimIndex] = React.useState(0);
   const [sweepPlotMode, setSweepPlotMode] = React.useState<"command_xy" | "polar_xy">("polar_xy");
@@ -409,6 +562,15 @@ function DeviceControlPage() {
     }
   }, []);
 
+  const refreshRotationDiag = React.useCallback(async () => {
+    try {
+      const data = await getRotationDiag();
+      setRotationDiagLines(data.lines || []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const refreshXdaToolsState = React.useCallback(async () => {
     try {
       const data = await getXdaToolsState();
@@ -428,14 +590,16 @@ function DeviceControlPage() {
   }, [streamConnected, refreshStatus]);
 
   React.useEffect(() => {
+    void refreshRotationDiag();
     void refreshXdaDiag();
     void refreshXdaToolsState();
     const id = window.setInterval(() => {
+      void refreshRotationDiag();
       void refreshXdaDiag();
       void refreshXdaToolsState();
     }, 2000);
     return () => window.clearInterval(id);
-  }, [refreshXdaDiag, refreshXdaToolsState]);
+  }, [refreshRotationDiag, refreshXdaDiag, refreshXdaToolsState]);
 
   const handleSave = React.useCallback(async () => {
     if (!config) return;
@@ -474,10 +638,10 @@ function DeviceControlPage() {
   const activateSimpleMode = React.useCallback(async () => {
     setUiMode("simple");
     if (!config) return;
-    if (config.serial.rotation_backend === "arduino_grbl") return;
+    if (config.serial.rotation_backend === "arduino_step_dir") return;
     const updated = withDefaultConnectionFields({
       ...config,
-      serial: { ...config.serial, rotation_backend: "arduino_grbl" },
+      serial: { ...config.serial, rotation_backend: "arduino_step_dir" },
     });
     setSaving(true);
     setError(null);
@@ -545,6 +709,76 @@ function DeviceControlPage() {
     [refreshStatus]
   );
 
+  const runRotationToolAction = React.useCallback(
+    async (fn: () => Promise<void>) => {
+      setCommandError(null);
+      setCommandBusy(true);
+      try {
+        await fn();
+        setLastCommandAck(`${new Date().toLocaleTimeString()} — rotation profile applied`);
+        await refreshRotationDiag();
+        await refreshStatus();
+      } catch (err) {
+        setLastCommandAck(null);
+        setCommandError(normalizeClientError(err));
+        await refreshStatus();
+      } finally {
+        setCommandBusy(false);
+      }
+    },
+    [refreshRotationDiag, refreshStatus]
+  );
+
+  const applyRotationProfile = React.useCallback(async () => {
+    if (!config) return;
+    if (config.serial.rotation_backend !== "arduino_step_dir") {
+      setCommandError("Rotation profile tuning is available only for Arduino CW/CCW (arduino_step_dir).");
+      return;
+    }
+    const startUs = Math.max(50, Math.floor(rotationStartUs));
+    const minUs = Math.max(20, Math.floor(rotationMinUs));
+    const ramp = Math.max(0, Math.floor(rotationRampSteps));
+    const ustep = Math.max(1, Math.floor(rotationMicrosteps));
+    await runRotationToolAction(async () => {
+      await rotationSendRaw(`USTEP=${ustep}`);
+      await rotationSendRaw(`STARTUS=${startUs}`);
+      await rotationSendRaw(`MINUS=${minUs}`);
+      await rotationSendRaw(`RAMP=${ramp}`);
+      await rotationSendRaw("STAT?");
+    });
+  }, [config, rotationStartUs, rotationMinUs, rotationRampSteps, rotationMicrosteps, runRotationToolAction]);
+
+  const loadRotationIdleTimeout = React.useCallback(async () => {
+    if (!config || config.serial.rotation_backend !== "arduino_step_dir") return;
+    try {
+      const data = await getRotationIdleTimeout();
+      if (Number.isFinite(data.seconds)) {
+        setRotationIdleDisableS(data.seconds);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [config]);
+
+  const applyRotationIdleTimeout = React.useCallback(async () => {
+    if (!config) return;
+    if (config.serial.rotation_backend !== "arduino_step_dir") {
+      setCommandError("Idle timeout control is available only for Arduino CW/CCW (arduino_step_dir).");
+      return;
+    }
+    const seconds = Math.max(0, Number(rotationIdleDisableS));
+    await runRotationToolAction(async () => {
+      const data = await setRotationIdleTimeout(seconds);
+      if (Number.isFinite(data.seconds)) {
+        setRotationIdleDisableS(data.seconds);
+      }
+    });
+  }, [config, rotationIdleDisableS, runRotationToolAction]);
+
+  React.useEffect(() => {
+    void loadRotationIdleTimeout();
+  }, [loadRotationIdleTimeout]);
+
   const updateConfig = React.useCallback((updater: (prev: DeviceConfigDto) => DeviceConfigDto) => {
     setConfig((prev) => (prev ? updater(prev) : prev));
   }, []);
@@ -573,7 +807,7 @@ function DeviceControlPage() {
   const hasPicoPort = Boolean(config?.serial.pico_port?.trim());
   const hasLinearPort = Boolean(config?.serial.linear_port?.trim());
   const sweepPortsMissing =
-    config?.serial.rotation_backend === "arduino_grbl"
+    config?.serial.rotation_backend !== "pico"
       ? !hasPicoPort || !hasLinearPort
       : !hasPicoPort;
 
@@ -753,35 +987,24 @@ function DeviceControlPage() {
       return;
     }
 
-    const makeSweepStops = (from: number, to: number): number[] => {
-      const dir = to >= from ? 1 : -1;
-      const pts: number[] = [from];
-      let x = from;
-      while (true) {
-        const next = x + dir * step;
-        if ((dir > 0 && next >= to) || (dir < 0 && next <= to)) break;
-        pts.push(next);
-        x = next;
-      }
-      const last = pts[pts.length - 1];
-      if (Math.abs(last - to) > 1e-9) pts.push(to);
-      return pts;
-    };
+    const rotMin = config?.rotation.travel_min_deg ?? -90;
+    const rotMax = config?.rotation.travel_max_deg ?? 90;
 
-    let rotation = status?.rotation_position_deg ?? rotationTarget ?? 0;
-    let forward = true;
-    const waypoints: DeviceWaypointDto[] = [];
-
-    for (let i = 0; i < repeats; i += 1) {
-      const from = forward ? minX : maxX;
-      const to = forward ? maxX : minX;
-      const sweepPts = makeSweepStops(from, to);
-      for (const x of sweepPts) {
-        waypoints.push({ linear_mm: x, rotation_deg: rotation, dwell_ms: dwell });
-      }
-      rotation += sweepRotateDeg;
-      waypoints.push({ linear_mm: to, rotation_deg: rotation, dwell_ms: 0 });
-      forward = !forward;
+    const waypoints = buildSweepWaypoints({
+      minX,
+      maxX,
+      step,
+      repeats,
+      dwell,
+      sweepRotateDeg,
+      rotMin,
+      rotMax,
+      rotationFirstToward: sweepRotationFirstToward,
+      rotationCoverFullTravel: sweepRotationCoverFullTravel,
+    });
+    if (waypoints.length === 0) {
+      setCommandError("Could not build sweep path (check step and limits).");
+      return;
     }
 
     setCurrentWaypoints(waypoints);
@@ -793,9 +1016,11 @@ function DeviceControlPage() {
     sweepDwellMs,
     sweepRotateDeg,
     sweepRepeats,
-    status?.rotation_position_deg,
-    rotationTarget,
+    sweepRotationFirstToward,
+    sweepRotationCoverFullTravel,
     sendCommand,
+    config?.rotation.travel_min_deg,
+    config?.rotation.travel_max_deg,
   ]);
 
   const sweepPreviewWaypoints = React.useMemo(() => {
@@ -804,38 +1029,20 @@ function DeviceControlPage() {
     const step = Math.abs(sweepStepY);
     const repeats = Math.max(1, Math.floor(sweepRepeats));
     const dwell = Math.max(0, Math.floor(sweepDwellMs));
-    if (step <= 0) return [] as DeviceWaypointDto[];
-
-    const makeSweepStops = (from: number, to: number): number[] => {
-      const dir = to >= from ? 1 : -1;
-      const pts: number[] = [from];
-      let x = from;
-      while (true) {
-        const next = x + dir * step;
-        if ((dir > 0 && next >= to) || (dir < 0 && next <= to)) break;
-        pts.push(next);
-        x = next;
-      }
-      const last = pts[pts.length - 1];
-      if (Math.abs(last - to) > 1e-9) pts.push(to);
-      return pts;
-    };
-
-    let rotation = status?.rotation_position_deg ?? rotationTarget ?? 0;
-    let forward = true;
-    const waypoints: DeviceWaypointDto[] = [];
-    for (let i = 0; i < repeats; i += 1) {
-      const from = forward ? minX : maxX;
-      const to = forward ? maxX : minX;
-      const sweepPts = makeSweepStops(from, to);
-      for (const x of sweepPts) {
-        waypoints.push({ linear_mm: x, rotation_deg: rotation, dwell_ms: dwell });
-      }
-      rotation += sweepRotateDeg;
-      waypoints.push({ linear_mm: to, rotation_deg: rotation, dwell_ms: 0 });
-      forward = !forward;
-    }
-    return waypoints;
+    const rotMin = config?.rotation.travel_min_deg ?? -90;
+    const rotMax = config?.rotation.travel_max_deg ?? 90;
+    return buildSweepWaypoints({
+      minX,
+      maxX,
+      step,
+      repeats,
+      dwell,
+      sweepRotateDeg,
+      rotMin,
+      rotMax,
+      rotationFirstToward: sweepRotationFirstToward,
+      rotationCoverFullTravel: sweepRotationCoverFullTravel,
+    });
   }, [
     sweepXMin,
     sweepXMax,
@@ -843,8 +1050,10 @@ function DeviceControlPage() {
     sweepDwellMs,
     sweepRotateDeg,
     sweepRepeats,
-    status?.rotation_position_deg,
-    rotationTarget,
+    sweepRotationFirstToward,
+    sweepRotationCoverFullTravel,
+    config?.rotation.travel_min_deg,
+    config?.rotation.travel_max_deg,
   ]);
 
   const sweepPreviewStats = React.useMemo(() => {
@@ -883,7 +1092,16 @@ function DeviceControlPage() {
   React.useEffect(() => {
     setSweepSimIndex(0);
     setSweepSimPlaying(false);
-  }, [sweepXMin, sweepXMax, sweepStepY, sweepDwellMs, sweepRotateDeg, sweepRepeats]);
+  }, [
+    sweepXMin,
+    sweepXMax,
+    sweepStepY,
+    sweepDwellMs,
+    sweepRotateDeg,
+    sweepRepeats,
+    sweepRotationFirstToward,
+    sweepRotationCoverFullTravel,
+  ]);
 
   React.useEffect(() => {
     if (!sweepSimPlaying || sweepPreviewWaypoints.length === 0) return;
@@ -936,11 +1154,11 @@ function DeviceControlPage() {
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               <span data-lang="pl">
-                Domyślny układ: Arduino / GRBL (obrót) + XDA (oś liniowa). Porty: COM20 (Arduino), COM22 (XDA), baud
+                Domyślny układ: Arduino (CW/CCW, obrót) + XDA (oś liniowa). Porty: COM20 (Arduino), COM22 (XDA), baud
                 115200. Zapis: /api/device/config-merge (PUT lub POST).
               </span>
               <span data-lang="en">
-                Default setup: Arduino / GRBL (rotation) + XDA (linear). Ports: COM20 (Arduino), COM22 (XDA), baud 115200.
+                Default setup: Arduino (CW/CCW text, rotation) + XDA (linear). Ports: COM20 (Arduino), COM22 (XDA), baud 115200.
                 Save uses /api/device/config-merge (PUT or POST).
               </span>
             </p>
@@ -967,28 +1185,31 @@ function DeviceControlPage() {
               <Label htmlFor="conn-rotation-backend">Motion backend</Label>
               <select
                 id="conn-rotation-backend"
-                value={config.serial.rotation_backend ?? "arduino_grbl"}
+                value={config.serial.rotation_backend ?? "arduino_step_dir"}
                 onChange={(e) =>
                   updateConfig((prev) => ({
                     ...prev,
                     serial: {
                       ...prev.serial,
-                      rotation_backend: (e.target.value as "pico" | "arduino_grbl") ?? "arduino_grbl",
+                      rotation_backend:
+                        (e.target.value as "pico" | "arduino_grbl" | "arduino_step_dir") ??
+                        "arduino_step_dir",
                     },
                   }))
                 }
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
               >
+                <option value="arduino_step_dir">Arduino (CW/CCW text protocol)</option>
                 <option value="arduino_grbl">Arduino / GRBL (CNC shield)</option>
                 <option value="pico">Pico (JSON protocol)</option>
               </select>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="conn-pico-port">
-                {config.serial.rotation_backend === "arduino_grbl" ? (
+                {config.serial.rotation_backend !== "pico" ? (
                   <>
-                    <span data-lang="pl">Port USB obrotu (Arduino / GRBL)</span>
-                    <span data-lang="en">Rotation USB (Arduino / GRBL)</span>
+                    <span data-lang="pl">Port USB obrotu (Arduino)</span>
+                    <span data-lang="en">Rotation USB (Arduino)</span>
                   </>
                 ) : (
                   <>
@@ -1041,7 +1262,7 @@ function DeviceControlPage() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="conn-pico-baud">
-                {config.serial.rotation_backend === "arduino_grbl" ? (
+                {config.serial.rotation_backend !== "pico" ? (
                   <>
                     <span data-lang="pl">Baud obrotu (Arduino)</span>
                     <span data-lang="en">Rotation baud (Arduino)</span>
@@ -1064,7 +1285,7 @@ function DeviceControlPage() {
                 }
               />
             </div>
-            {config.serial.rotation_backend === "arduino_grbl" && (
+            {config.serial.rotation_backend !== "pico" && (
               <>
                 <div className="grid gap-2">
                   <Label htmlFor="conn-linear-port">
@@ -1132,10 +1353,10 @@ function DeviceControlPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   <span data-lang="pl">
-                    Arduino + XDA: dwa porty USB — GRBL na obroty, protokół ASCII XD-OEM na oś liniową.
+                    Arduino + XDA: dwa porty USB — CW/CCW (tekst) na obroty, protokół ASCII XD-OEM na oś liniową.
                   </span>
                   <span data-lang="en">
-                    Arduino + XDA: two USB ports — GRBL for rotation, XD-OEM ASCII for linear axis.
+                    Arduino + XDA: two USB ports — CW/CCW text protocol for rotation, XD-OEM ASCII for linear axis.
                   </span>
                 </p>
               </>
@@ -1278,7 +1499,11 @@ function DeviceControlPage() {
               <span className="inline-flex items-center rounded-full border border-border/60 bg-muted px-2 py-0.5 text-xs font-medium">
                 <span data-lang="pl">Backend ruchu:</span>
                 <span data-lang="en">Motion backend:</span>&nbsp;
-                {config.serial.rotation_backend === "arduino_grbl" ? "Arduino/GRBL" : "Pico"}
+                {config.serial.rotation_backend === "pico"
+                  ? "Pico"
+                  : config.serial.rotation_backend === "arduino_grbl"
+                    ? "Arduino/GRBL"
+                    : "Arduino (CW/CCW)"}
               </span>
             </p>
             <p className="text-sm">
@@ -1317,6 +1542,53 @@ function DeviceControlPage() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-4">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold">
+            <span data-lang="pl">Log komunikacji obrotu (Arduino)</span>
+            <span data-lang="en">Rotation communication log (Arduino)</span>
+          </h3>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshRotationDiag()}>
+              <span data-lang="pl">Odśwież</span>
+              <span data-lang="en">Refresh</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowRotationLog((v) => !v)}
+            >
+              {showRotationLog ? (
+                <>
+                  <span data-lang="pl">Ukryj</span>
+                  <span data-lang="en">Hide</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Pokaż</span>
+                  <span data-lang="en">Show</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </header>
+        {showRotationLog && (
+          <div className="mt-3">
+            <p className="mb-2 text-sm text-muted-foreground">
+              <span data-lang="pl">Widoczne ostatnie {Math.min(1000, rotationDiagLines.length)} z {rotationDiagLines.length} linii.</span>
+              <span data-lang="en">Showing last {Math.min(1000, rotationDiagLines.length)} of {rotationDiagLines.length} lines.</span>
+            </p>
+            <pre className="max-h-[20rem] overflow-auto rounded-md bg-muted/40 p-3 text-sm leading-6">
+              {(rotationDiagLines.length > 0
+                ? rotationDiagLines.slice(-1000).join("\n")
+                : "No rotation serial lines yet. Send a rotation command, then refresh.")
+                .trim()}
+            </pre>
+          </div>
+        )}
       </section>
 
       <section className="rounded-lg border border-border bg-card p-4">
@@ -1374,10 +1646,26 @@ function DeviceControlPage() {
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg border border-border bg-card p-4 lg:p-5">
-          <h3 className="text-lg font-semibold">
-            <span data-lang="pl">Xeryon XD-OEM - panel liniowy</span>
-            <span data-lang="en">Xeryon XD-OEM - linear panel</span>
-          </h3>
+          <header className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold">
+              <span data-lang="pl">Xeryon XD-OEM - panel liniowy</span>
+              <span data-lang="en">Xeryon XD-OEM - linear panel</span>
+            </h3>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowLinearControlPanel((v) => !v)}>
+              {showLinearControlPanel ? (
+                <>
+                  <span data-lang="pl">Ukryj</span>
+                  <span data-lang="en">Hide</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Pokaż</span>
+                  <span data-lang="en">Show</span>
+                </>
+              )}
+            </Button>
+          </header>
+          {showLinearControlPanel && (
           <div className="mt-3 space-y-3">
             <div className="rounded-md border border-border/60 p-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connection</p>
@@ -1561,14 +1849,260 @@ function DeviceControlPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-lg font-semibold">
-            <span data-lang="pl">Sterowanie obrotem</span>
-            <span data-lang="en">Rotation control</span>
-          </h3>
+          <header className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold">
+              <span data-lang="pl">Sterowanie obrotem</span>
+              <span data-lang="en">Rotation control</span>
+            </h3>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowRotationControlPanel((v) => !v)}
+            >
+              {showRotationControlPanel ? (
+                <>
+                  <span data-lang="pl">Ukryj</span>
+                  <span data-lang="en">Hide</span>
+                </>
+              ) : (
+                <>
+                  <span data-lang="pl">Pokaż</span>
+                  <span data-lang="en">Show</span>
+                </>
+              )}
+            </Button>
+          </header>
+          {showRotationControlPanel && (
           <div className="mt-4 grid gap-4">
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Home / reference
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => sendCommand({ type: "set_home", axis: "rotation" })}
+                  disabled={commandBusy}
+                >
+                  <span data-lang="pl">Ustaw HOME (tu = 0°)</span>
+                  <span data-lang="en">Set HOME (here = 0°)</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => sendCommand({ type: "home", axis: "rotation" })}
+                  disabled={commandBusy}
+                >
+                  <span data-lang="pl">Jedź do HOME</span>
+                  <span data-lang="en">Go HOME</span>
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <span data-lang="pl">Profil ruchu (Arduino CW/CCW)</span>
+                <span data-lang="en">Motion profile (Arduino CW/CCW)</span>
+              </p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                <span data-lang="pl">
+                  Dla firmware CW/CCW prędkość wynika z opóźnienia impulsów (µs). Mniejsze µs = szybciej. RAMP steruje
+                  narastaniem/hamowaniem (w mikro-krokach). To ustawienia runtime „na sterowniku” (nie zapisują się do
+                  device_config.json), niezależne od programu sweep.
+                </span>
+                <span data-lang="en">
+                  With CW/CCW firmware, speed is set by step pulse delay (µs). Smaller µs = faster. RAMP controls accel and
+                  decel (in microsteps). These are runtime controller settings (not saved to device_config.json), independent
+                  of the sweep program.
+                </span>
+              </p>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRotationMicrosteps(8);
+                    setRotationStartUs(1400);
+                    setRotationMinUs(750);
+                    setRotationRampSteps(1000);
+                  }}
+                  disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                >
+                  <span data-lang="pl">1) “w miarę szybko”</span>
+                  <span data-lang="en">1) sort of fast</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRotationMicrosteps(8);
+                    setRotationStartUs(1100);
+                    setRotationMinUs(600);
+                    setRotationRampSteps(1400);
+                  }}
+                  disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                >
+                  <span data-lang="pl">2) szybko</span>
+                  <span data-lang="en">2) fast</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRotationMicrosteps(8);
+                    setRotationStartUs(850);
+                    setRotationMinUs(450);
+                    setRotationRampSteps(2000);
+                  }}
+                  disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                >
+                  <span data-lang="pl">3) bardzo szybko</span>
+                  <span data-lang="en">3) very fast</span>
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-1">
+                  <Label htmlFor="rot-ustep">
+                    <span data-lang="pl">USTEP (tylko skala °)</span>
+                    <span data-lang="en">USTEP (degrees scaling only)</span>
+                  </Label>
+                  <Input
+                    id="rot-ustep"
+                    type="number"
+                    step="1"
+                    min={1}
+                    value={rotationMicrosteps}
+                    onChange={(e) => updateNumber(e.target.value, setRotationMicrosteps)}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="rot-start-us">
+                    <span data-lang="pl">START (µs)</span>
+                    <span data-lang="en">START (µs)</span>
+                  </Label>
+                  <Input
+                    id="rot-start-us"
+                    type="number"
+                    step="10"
+                    min={50}
+                    value={rotationStartUs}
+                    onChange={(e) => updateNumber(e.target.value, setRotationStartUs)}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="rot-min-us">
+                    <span data-lang="pl">MIN (µs) — max speed</span>
+                    <span data-lang="en">MIN (µs) — max speed</span>
+                  </Label>
+                  <Input
+                    id="rot-min-us"
+                    type="number"
+                    step="10"
+                    min={20}
+                    value={rotationMinUs}
+                    onChange={(e) => updateNumber(e.target.value, setRotationMinUs)}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  />
+                </div>
+                <div className="grid gap-1 md:col-span-3">
+                  <Label htmlFor="rot-ramp-steps">
+                    <span data-lang="pl">RAMP (steps)</span>
+                    <span data-lang="en">RAMP (steps)</span>
+                  </Label>
+                  <Input
+                    id="rot-ramp-steps"
+                    type="number"
+                    step="50"
+                    min={0}
+                    value={rotationRampSteps}
+                    onChange={(e) => updateNumber(e.target.value, setRotationRampSteps)}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void applyRotationProfile()}
+                  disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                >
+                  <span data-lang="pl">Zastosuj profil</span>
+                  <span data-lang="en">Apply profile</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void runRotationToolAction(async () => {
+                      await rotationSendRaw("CFG?");
+                    })
+                  }
+                  disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                >
+                  <span data-lang="pl">Pokaż CFG w logu</span>
+                  <span data-lang="en">Show CFG in log</span>
+                </Button>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="grid gap-1">
+                  <Label htmlFor="rot-idle-disable-s">
+                    <span data-lang="pl">Auto EN=0 po bezruchu (s)</span>
+                    <span data-lang="en">Auto EN=0 after idle (s)</span>
+                  </Label>
+                  <Input
+                    id="rot-idle-disable-s"
+                    type="number"
+                    step="1"
+                    min={0}
+                    value={rotationIdleDisableS}
+                    onChange={(e) => updateNumber(e.target.value, setRotationIdleDisableS)}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    <span data-lang="pl">0 = wyłącz auto power-down. Domyślnie 20 s.</span>
+                    <span data-lang="en">0 = disable auto power-down. Default is 20 s.</span>
+                  </p>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void applyRotationIdleTimeout()}
+                    disabled={commandBusy || config.serial.rotation_backend !== "arduino_step_dir"}
+                  >
+                    <span data-lang="pl">Zastosuj timeout</span>
+                    <span data-lang="en">Apply timeout</span>
+                  </Button>
+                </div>
+              </div>
+              {config.serial.rotation_backend !== "arduino_step_dir" ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span data-lang="pl">Dostępne tylko dla backendu `arduino_step_dir` (CW/CCW).</span>
+                  <span data-lang="en">Available only for `arduino_step_dir` (CW/CCW).</span>
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span data-lang="pl">
+                    Uwaga: “bardzo szybko” może gubić kroki zależnie od obciążenia i prądu TMC2100. Producent Twojego silnika
+                    podaje “Max Optimal Speed” = 1 RPS — traktuj to jako wskazówkę, a nie twardy limit.
+                  </span>
+                  <span data-lang="en">
+                    Note: “very fast” may skip steps depending on load and TMC2100 current. Your motor’s datasheet lists
+                    “Max Optimal Speed” = 1 RPS — treat this as guidance, not a hard limit.
+                  </span>
+                </p>
+              )}
+            </div>
+
             <div className="grid gap-2">
               <Label htmlFor="rotation-target">Target (deg)</Label>
               <Input
@@ -1579,16 +2113,120 @@ function DeviceControlPage() {
                 onChange={(e) => updateNumber(e.target.value, setRotationTarget)}
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="rotation-step">Step (deg)</Label>
-              <Input
-                id="rotation-step"
-                type="number"
-                step="0.1"
-                value={rotationStep}
-                onChange={(e) => updateNumber(e.target.value, setRotationStep)}
-              />
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Relative move (deg)
+              </p>
+              <div className="mb-2 flex flex-wrap gap-2">
+                {ROTATION_PRESET_VALUES.map((v) => (
+                  <React.Fragment key={`rel-${v}`}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        sendCommand({ type: "move_rel", axis: "rotation", value: -v, unit: "deg" })
+                      }
+                      disabled={commandBusy}
+                    >
+                      -{v}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        sendCommand({ type: "move_rel", axis: "rotation", value: v, unit: "deg" })
+                      }
+                      disabled={commandBusy}
+                    >
+                      +{v}
+                    </Button>
+                  </React.Fragment>
+                ))}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                <Input
+                  id="rotation-step-custom"
+                  type="number"
+                  step="0.1"
+                  value={rotationStep}
+                  onChange={(e) => updateNumber(e.target.value, setRotationStep)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    sendCommand({ type: "move_rel", axis: "rotation", value: -Math.abs(rotationStep), unit: "deg" })
+                  }
+                  disabled={commandBusy}
+                >
+                  custom -
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    sendCommand({ type: "move_rel", axis: "rotation", value: Math.abs(rotationStep), unit: "deg" })
+                  }
+                  disabled={commandBusy}
+                >
+                  custom +
+                </Button>
+              </div>
             </div>
+
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Absolute move (deg)
+              </p>
+              <div className="mb-2 flex flex-wrap gap-2">
+                {ROTATION_PRESET_VALUES.map((v) => (
+                  <React.Fragment key={`abs-${v}`}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        sendCommand({ type: "move_abs", axis: "rotation", value: -v, unit: "deg" })
+                      }
+                      disabled={commandBusy}
+                    >
+                      go -{v}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        sendCommand({ type: "move_abs", axis: "rotation", value: v, unit: "deg" })
+                      }
+                      disabled={commandBusy}
+                    >
+                      go +{v}
+                    </Button>
+                  </React.Fragment>
+                ))}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                <Input
+                  id="rotation-target-custom"
+                  type="number"
+                  step="0.1"
+                  value={rotationTarget}
+                  onChange={(e) => updateNumber(e.target.value, setRotationTarget)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    sendCommand({ type: "move_abs", axis: "rotation", value: -Math.abs(rotationTarget), unit: "deg" })
+                  }
+                  disabled={commandBusy}
+                >
+                  custom -
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    sendCommand({ type: "move_abs", axis: "rotation", value: Math.abs(rotationTarget), unit: "deg" })
+                  }
+                  disabled={commandBusy}
+                >
+                  custom +
+                </Button>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() =>
@@ -1614,8 +2252,8 @@ function DeviceControlPage() {
                 onClick={() => sendCommand({ type: "home", axis: "rotation" })}
                 disabled={commandBusy}
               >
-                <span data-lang="pl">Home</span>
-                <span data-lang="en">Home</span>
+                <span data-lang="pl">Go Home</span>
+                <span data-lang="en">Go Home</span>
               </Button>
               <Button
                 variant="destructive"
@@ -1656,6 +2294,7 @@ function DeviceControlPage() {
               </Button>
             </div>
           </div>
+          )}
         </div>
       </section>
 
@@ -1689,10 +2328,14 @@ function DeviceControlPage() {
         <>
         <p className="mt-1 text-xs text-muted-foreground">
           <span data-lang="pl">
-            Sekwencja: sweep X min→max z postojami, obrót R, sweep max→min z postojami, obrót R; powtórz N razy.
+            Serwer: HOME liniowy i obrotowy, dojazd do pierwszego punktu, cała sekwencja, na końcu HOME obu osi. Oś X na
+            przemian min↔max. Bez „pełnego zakresu”: N przejść liniowych, po każdym obrót o |R|. Z pełnym zakresem: jeden
+            przebieg kąta w ceil(zakres/|R|) przejściach (N wyłączone). Na każdym punkcie: obrót, potem X, postój Z.
           </span>
           <span data-lang="en">
-            Sequence: sweep X min→max with dwell stops, rotate by R, sweep max→min with dwell stops, rotate by R; repeat N times.
+            Server: HOME both axes, approach first waypoint, run pattern, HOME again. Linear alternates min↔max each leg.
+            Without full-span: N linear sweeps, rotating |R| after each sweep. With full-span: one angular pass using
+            ceil(span/|R|) legs (Repeats N disabled). Each waypoint: rotate, then linear X, dwell Z.
           </span>
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -1713,12 +2356,89 @@ function DeviceControlPage() {
             <Input id="sweep-dwell" type="number" step="10" min={0} value={sweepDwellMs} onChange={(e) => updateInt(e.target.value, setSweepDwellMs)} />
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="sweep-rotate">Rotate R (deg)</Label>
+            <Label htmlFor="sweep-rotate">
+              <span data-lang="pl">Krok kąta R (°) — monotonicznie w zakresie</span>
+              <span data-lang="en">Rotate step R (deg) — monotonic in range</span>
+            </Label>
             <Input id="sweep-rotate" type="number" step="0.1" value={sweepRotateDeg} onChange={(e) => updateNumber(e.target.value, setSweepRotateDeg)} />
+            <p className="text-xs text-muted-foreground">
+              <span data-lang="pl">
+                Przy wyłączonym pełnym zakresie: po każdym pełnym przebiegu X następuje obrót o |R| (kierunek jak poniżej),
+                N razy. Przy włączonym: R tylko ustala liczbę przejść na cały zakres.
+              </span>
+              <span data-lang="en">
+                With full-span off: after each full X sweep, rotate by |R| (direction below), repeated N times. With full-span
+                on, R only sets how many legs cover the whole travel range.
+              </span>
+            </p>
+          </div>
+          <div className="grid gap-2 md:col-span-3">
+              <span className="text-xs font-medium text-muted-foreground">
+              <span data-lang="pl">Kierunek kroku R (start przy limicie)</span>
+              <span data-lang="en">Step-R direction (start at limit)</span>
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={sweepRotationFirstToward === "negative_limit" ? "default" : "outline"}
+                onClick={() => setSweepRotationFirstToward("negative_limit")}
+              >
+                <span data-lang="pl">Od min (−) do max (+)</span>
+                <span data-lang="en">Min limit → max (+)</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={sweepRotationFirstToward === "positive_limit" ? "default" : "outline"}
+                onClick={() => setSweepRotationFirstToward("positive_limit")}
+              >
+                <span data-lang="pl">Od max (+) do min (−)</span>
+                <span data-lang="en">Max limit → min (−)</span>
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 md:col-span-3">
+            <input
+              type="checkbox"
+              id="sweep-rotation-full-travel"
+              className="mt-1 h-4 w-4 shrink-0 rounded border border-input"
+              checked={sweepRotationCoverFullTravel}
+              onChange={(e) => setSweepRotationCoverFullTravel(e.target.checked)}
+            />
+            <Label htmlFor="sweep-rotation-full-travel" className="cursor-pointer font-normal leading-snug">
+              <span data-lang="pl" className="block">
+                Pełny zakres kąta: liczba przejść = ceil((max°−min°) / |R|). Wyłącza pole „Repeats N”.
+              </span>
+              <span data-lang="en" className="block">
+                Full rotation span: leg count = ceil((max°−min°) / |R|). Disables Repeats N.
+              </span>
+            </Label>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="sweep-repeats">Repeats N</Label>
-            <Input id="sweep-repeats" type="number" step="1" min={1} value={sweepRepeats} onChange={(e) => updateInt(e.target.value, setSweepRepeats)} />
+            <Label
+              htmlFor="sweep-repeats"
+              className={sweepRotationCoverFullTravel ? "text-muted-foreground" : undefined}
+            >
+              <span data-lang="pl">Repeats N (tylko bez pełnego zakresu)</span>
+              <span data-lang="en">Repeats N (full-span off only)</span>
+            </Label>
+            <Input
+              id="sweep-repeats"
+              type="number"
+              step="1"
+              min={1}
+              value={sweepRepeats}
+              onChange={(e) => updateInt(e.target.value, setSweepRepeats)}
+              disabled={sweepRotationCoverFullTravel}
+              className={sweepRotationCoverFullTravel ? "opacity-60" : undefined}
+            />
+            {sweepRotationCoverFullTravel ? (
+              <p className="text-xs text-muted-foreground">
+                <span data-lang="pl">Liczba przejść wynika z pełnego zakresu i R.</span>
+                <span data-lang="en">Leg count is set by full span and R.</span>
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -2229,6 +2949,24 @@ function DeviceControlPage() {
           <fieldset className="grid gap-3">
             <legend className="text-sm font-medium">Rotation (Stepper)</legend>
             <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  updateConfig((prev) => ({
+                    ...prev,
+                    rotation: {
+                      ...prev.rotation,
+                      motor_steps_per_rev: 200,
+                      microsteps: 8,
+                      gear_ratio: 6.6,
+                    },
+                  }))
+                }
+              >
+                <span data-lang="pl">Profil Arduino CW/CCW (200/8/6.6)</span>
+                <span data-lang="en">Arduino CW/CCW profile (200/8/6.6)</span>
+              </Button>
               <Button
                 type="button"
                 variant="outline"

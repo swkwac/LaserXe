@@ -24,7 +24,11 @@ from starlette.background import BackgroundTasks
 
 from app.schemas.device import DeviceCommandSchema, DeviceConfigSchema, DeviceStatusSchema
 from app.services.device_config import compute_device_config
-from app.services.device_error_detail import missing_linear_port_detail, missing_pico_port_detail
+from app.services.device_error_detail import (
+    missing_linear_port_detail,
+    missing_pico_port_detail,
+    pattern_rotation_zero_required_detail,
+)
 
 
 class DeviceConfigError(Exception):
@@ -47,6 +51,22 @@ def _open_serial(port: str, baud: int, **kwargs: Any) -> Any:
         return serial.Serial(port=port, baudrate=baud, **kwargs)
     except Exception as exc:
         raise DeviceConnectionError(f"Could not open serial port {port!r}: {exc}") from exc
+
+
+def _is_serial_io_error(exc: Exception) -> bool:
+    """True for pyserial write/read I/O failures that should surface as connection errors."""
+    error_types: tuple[type[BaseException], ...] = (OSError, TimeoutError)
+    if serial is not None:
+        serial_exc = getattr(serial, "SerialException", None)
+        serial_timeout_exc = getattr(serial, "SerialTimeoutException", None)
+        dynamic_types: list[type[BaseException]] = []
+        if isinstance(serial_exc, type):
+            dynamic_types.append(serial_exc)
+        if isinstance(serial_timeout_exc, type):
+            dynamic_types.append(serial_timeout_exc)
+        if dynamic_types:
+            error_types = (*error_types, *dynamic_types)
+    return isinstance(exc, error_types)
 
 
 @dataclass
@@ -114,7 +134,14 @@ class PicoSerialClient:
         with self._lock:
             if self._serial is None or not getattr(self._serial, "is_open", False):
                 raise DeviceConnectionError("Pico not connected")
-            self._serial.write(data.encode("utf-8"))
+            try:
+                self._serial.write(data.encode("utf-8"))
+            except Exception as exc:
+                if not _is_serial_io_error(exc):
+                    raise
+                self._status.last_error = f"Pico write failed: {exc}"
+                self._close_locked()
+                raise DeviceConnectionError(f"Pico write failed: {exc}") from exc
 
     def status_snapshot(self) -> DeviceStatusState:
         with self._lock:
@@ -185,6 +212,12 @@ class GrblSerialClient:
         self._reader_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._status = DeviceStatusState()
+        self._protocol: str = "unknown"  # "unknown" | "grbl" | "step_dir_text"
+        self._opened_monotonic_s: float | None = None
+        self._diag_lines: deque[str] = deque(maxlen=1000)
+        self._step_dir_ack_lock = threading.Lock()
+        self._step_dir_ack_event: threading.Event | None = None
+        self._step_dir_ack_err: str | None = None
 
     def connect(self, port: str, baud: int) -> None:
         if serial is None:
@@ -206,6 +239,7 @@ class GrblSerialClient:
             self._reader_thread.start()
             self._status.connected = True
             self._status.last_error = None
+            self._opened_monotonic_s = time.monotonic()
             self._write_line("\r\n")
 
     def close(self) -> None:
@@ -213,6 +247,13 @@ class GrblSerialClient:
             self._close_locked()
 
     def _close_locked(self) -> None:
+        ev: threading.Event | None = None
+        with self._step_dir_ack_lock:
+            if self._step_dir_ack_event is not None:
+                self._step_dir_ack_err = "Arduino connection closed"
+                ev = self._step_dir_ack_event
+        if ev is not None:
+            ev.set()
         self._stop_event.set()
         if self._serial is not None:
             try:
@@ -221,21 +262,75 @@ class GrblSerialClient:
                 pass
         self._serial = None
         self._status.connected = False
+        self._opened_monotonic_s = None
 
     def _write_line(self, line: str) -> None:
         if self._serial is None or not getattr(self._serial, "is_open", False):
             raise DeviceConnectionError("Arduino GRBL not connected")
-        self._serial.write(line.encode("utf-8"))
+        try:
+            self._serial.write(line.encode("utf-8"))
+        except Exception as exc:
+            if not _is_serial_io_error(exc):
+                raise
+            msg = f"Arduino write failed: {exc}"
+            self._status.last_error = msg
+            self._close_locked()
+            raise DeviceConnectionError(msg) from exc
+        self._record_diag(f">> {line.rstrip()}")
 
     def send_line(self, line: str) -> None:
         with self._lock:
             self._write_line(line if line.endswith("\n") else f"{line}\n")
 
+    def _signal_step_dir_ack_if_pending(self, *, ok: bool, err_msg: str | None = None) -> None:
+        with self._step_dir_ack_lock:
+            pending = self._step_dir_ack_event
+            if pending is None:
+                return
+            self._step_dir_ack_err = None if ok else (err_msg or "ERR")
+        pending.set()
+
+    def send_step_dir_command_wait_ack(self, line: str, *, timeout_s: float) -> None:
+        """Block until the Arduino step-dir sketch finishes the move and sends OK (sketch is synchronous per line)."""
+        evt = threading.Event()
+        with self._step_dir_ack_lock:
+            self._step_dir_ack_event = evt
+            self._step_dir_ack_err = None
+        try:
+            self.send_line(line)
+        except Exception:
+            with self._step_dir_ack_lock:
+                self._step_dir_ack_event = None
+                self._step_dir_ack_err = None
+            raise
+        if not evt.wait(timeout=max(0.5, float(timeout_s))):
+            with self._step_dir_ack_lock:
+                self._step_dir_ack_event = None
+                self._step_dir_ack_err = None
+            raise DeviceConnectionError(
+                f"Timed out after {timeout_s:g}s waiting for Arduino OK after: {line.strip()[:48]!r}"
+            )
+        with self._step_dir_ack_lock:
+            err = self._step_dir_ack_err
+            self._step_dir_ack_event = None
+            self._step_dir_ack_err = None
+        if err:
+            raise DeviceConnectionError(err)
+
     def send_realtime(self, byte_value: int) -> None:
         with self._lock:
             if self._serial is None or not getattr(self._serial, "is_open", False):
                 raise DeviceConnectionError("Arduino GRBL not connected")
-            self._serial.write(bytes([byte_value]))
+            try:
+                self._serial.write(bytes([byte_value]))
+            except Exception as exc:
+                if not _is_serial_io_error(exc):
+                    raise
+                msg = f"Arduino realtime write failed: {exc}"
+                self._status.last_error = msg
+                self._close_locked()
+                raise DeviceConnectionError(msg) from exc
+            self._record_diag(f">> [rt:{byte_value}]")
 
     def status_snapshot(self) -> DeviceStatusState:
         with self._lock:
@@ -252,6 +347,39 @@ class GrblSerialClient:
                 firmware_version=self._status.firmware_version,
                 grbl_state=self._status.grbl_state,
             )
+
+    def protocol_name(self) -> str:
+        with self._lock:
+            return self._protocol
+
+    def is_grbl_protocol(self) -> bool:
+        with self._lock:
+            return self._protocol == "grbl"
+
+    def set_rotation_steps_estimate(self, steps: int, *, moving: bool | None = None) -> None:
+        with self._lock:
+            self._status.rotation_pos_steps = int(steps)
+            if moving is not None:
+                self._status.rotation_moving = bool(moving)
+            self._status.last_update = datetime.now(timezone.utc)
+
+    def ensure_step_dir_ready(self, minimum_uptime_s: float = 1.8) -> None:
+        """UNO/Nano often auto-reset on serial open; wait before first text command."""
+        with self._lock:
+            opened = self._opened_monotonic_s
+        if opened is None:
+            return
+        remaining = float(minimum_uptime_s) - (time.monotonic() - opened)
+        if remaining > 0:
+            time.sleep(min(remaining, 3.0))
+
+    def _record_diag(self, line: str) -> None:
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+        self._diag_lines.append(f"{ts} {line}")
+
+    def get_diag_lines(self) -> list[str]:
+        with self._lock:
+            return list(self._diag_lines)
 
     def _read_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -270,6 +398,7 @@ class GrblSerialClient:
             text = line.decode("utf-8", errors="replace").strip()
             if not text:
                 continue
+            self._record_diag(f"<< {text}")
             self._handle_line(text)
 
     def _handle_line(self, text: str) -> None:
@@ -289,6 +418,7 @@ class GrblSerialClient:
                             x_pos = None
                     break
             with self._lock:
+                self._protocol = "grbl"
                 self._status.grbl_state = state
                 if x_pos is not None:
                     self._status.rotation_pos_steps = int(round(x_pos))
@@ -298,13 +428,51 @@ class GrblSerialClient:
             return
         if text.lower().startswith("error:"):
             with self._lock:
+                self._protocol = "grbl"
                 self._status.last_error = text
                 self._status.last_update = datetime.now(timezone.utc)
             return
         if text.startswith("Grbl "):
             with self._lock:
+                self._protocol = "grbl"
                 self._status.firmware_version = text
                 self._status.last_update = datetime.now(timezone.utc)
+            return
+        up = text.strip().upper()
+        with self._lock:
+            proto = self._protocol
+        is_step_dir_ok = up == "OK" or (len(up) > 2 and up.startswith("OK "))
+        if is_step_dir_ok:
+            if proto == "grbl":
+                return
+            with self._lock:
+                self._protocol = "step_dir_text"
+                self._status.rotation_moving = False
+                self._status.last_error = None
+                self._status.last_update = datetime.now(timezone.utc)
+            self._signal_step_dir_ack_if_pending(ok=True)
+            return
+        if up == "ERR":
+            if proto == "grbl":
+                return
+            with self._lock:
+                self._protocol = "step_dir_text"
+                self._status.rotation_moving = False
+                self._status.last_error = "Arduino step-dir command rejected (ERR)"
+                self._status.last_update = datetime.now(timezone.utc)
+            self._signal_step_dir_ack_if_pending(
+                ok=False,
+                err_msg="Arduino step-dir command rejected (ERR)",
+            )
+            return
+        if up.startswith("READY"):
+            with self._lock:
+                self._protocol = "step_dir_text"
+                self._status.connected = True
+                self._status.firmware_version = text
+                self._status.last_error = None
+                self._status.last_update = datetime.now(timezone.utc)
+            return
 
 
 class XdaSerialClient:
@@ -412,7 +580,13 @@ class XdaSerialClient:
             raise DeviceConnectionError("XDA not connected")
         term = self._line_terminator()
         text = text.rstrip("\r\n") + term
-        self._serial.write(text.encode("ascii", errors="replace"))
+        try:
+            self._serial.write(text.encode("ascii", errors="replace"))
+        except Exception as exc:
+            if not _is_serial_io_error(exc):
+                raise
+            self._close_locked()
+            raise DeviceConnectionError(f"XDA write failed: {exc}") from exc
         try:
             self._serial.flush()
         except Exception:
@@ -658,15 +832,29 @@ class DeviceManager:
         self._pattern_bg_running = False
         self._xda_jog_open_loop_override: bool | None = None
         self._xda_use_axis_prefix_override: bool | None = None
+        self._split_linear_probe_lock = threading.Lock()
+        self._split_linear_next_probe_ts = 0.0
+        self._split_linear_last_mm: float | None = None
+        self._split_linear_last_error: str | None = None
+        self._step_dir_idle_timer_lock = threading.Lock()
+        self._step_dir_idle_timer: threading.Timer | None = None
+        self._step_dir_idle_disable_seconds_override: float | None = None
 
     def _rotation_backend(self, config: DeviceConfigSchema) -> str:
         override = os.getenv("DEVICE_ROTATION_BACKEND", "").strip().lower()
-        if override in {"pico", "arduino_grbl"}:
+        if override in {"pico", "arduino_grbl", "arduino_step_dir"}:
             return override
         return config.serial.rotation_backend
 
+    def _should_use_step_dir_protocol(self, configured_backend: str) -> bool:
+        """Auto-fallback to text protocol when Arduino announces non-GRBL firmware."""
+        if configured_backend == "arduino_step_dir":
+            return True
+        # If configured as GRBL but serial stream proves text protocol, switch command path.
+        return self._grbl.protocol_name() == "step_dir_text"
+
     def _is_split_usb(self, config: DeviceConfigSchema) -> bool:
-        if self._rotation_backend(config) != "arduino_grbl":
+        if self._rotation_backend(config) == "pico":
             return False
         return bool((config.serial.linear_port or "").strip())
 
@@ -677,6 +865,121 @@ class DeviceManager:
     def get_xda_diag(self) -> list[str]:
         """Recent XDA TX/RX lines (newest last), for UI troubleshooting."""
         return self._xda.get_diag_lines()
+
+    def get_rotation_diag(self) -> list[str]:
+        """Recent Arduino rotation TX/RX lines (newest last), for UI troubleshooting."""
+        return self._grbl.get_diag_lines()
+
+    def rotation_send_raw_now(self, config: DeviceConfigSchema, command: str) -> dict[str, Any]:
+        """Send a raw command to the rotation Arduino when using the CW/CCW text firmware."""
+        cmd = (command or "").strip()
+        if not cmd:
+            raise DeviceConfigError("Rotation raw command is empty.")
+        backend = self._rotation_backend(config)
+        if backend != "arduino_step_dir":
+            raise DeviceConfigError(
+                f"rotation-tools/raw is supported only for arduino_step_dir; current backend is {backend!r}"
+            )
+        if not (config.serial.pico_port or "").strip():
+            raise DeviceConfigError(
+                "serial.pico_port is not configured",
+                http_detail=missing_pico_port_detail(
+                    config,
+                    command_type="rotation_raw",
+                    in_split_path=True,
+                ),
+            )
+        self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+        self._grbl.ensure_step_dir_ready()
+        up = cmd.upper()
+        # Motion commands can take long; config/query commands should fail fast so UI does not look frozen.
+        is_motion = up.startswith("CW") or up.startswith("CCW") or up.startswith("MOVE=") or up == "HOME"
+        timeout_key = "STEP_DIR_ACK_TIMEOUT_S" if is_motion else "STEP_DIR_CFG_ACK_TIMEOUT_S"
+        timeout_default = "120" if is_motion else "5"
+        timeout_s = float(os.environ.get(timeout_key, timeout_default))
+        self._grbl.send_step_dir_command_wait_ack(cmd, timeout_s=timeout_s)
+        if up.startswith("EN="):
+            if up == "EN=1":
+                self._step_dir_schedule_idle_disable(config, source="rotation_raw")
+            if up == "EN=0":
+                self._step_dir_cancel_idle_disable()
+        return {"ok": True, "sent": cmd}
+
+    def _step_dir_idle_disable_seconds(self) -> float:
+        """Idle hold-off before sending EN=0 to reduce motor heating while stationary.
+
+        Set STEP_DIR_AUTO_DISABLE_IDLE_S<=0 to disable auto power-down.
+        """
+        if self._step_dir_idle_disable_seconds_override is not None:
+            return self._step_dir_idle_disable_seconds_override
+        try:
+            return float(os.environ.get("STEP_DIR_AUTO_DISABLE_IDLE_S", "20"))
+        except Exception:
+            return 20.0
+
+    def get_step_dir_idle_disable_seconds(self) -> dict[str, Any]:
+        env_val = os.environ.get("STEP_DIR_AUTO_DISABLE_IDLE_S", "20")
+        try:
+            env_seconds = float(env_val)
+        except Exception:
+            env_seconds = 20.0
+        effective = self._step_dir_idle_disable_seconds()
+        source = "runtime_override" if self._step_dir_idle_disable_seconds_override is not None else "env"
+        return {
+            "seconds": effective,
+            "source": source,
+            "env_seconds": env_seconds,
+            "enabled": effective > 0,
+        }
+
+    def set_step_dir_idle_disable_seconds(self, seconds: float) -> dict[str, Any]:
+        secs = float(seconds)
+        if not (secs >= 0):
+            raise DeviceConfigError("Idle auto-disable seconds must be >= 0.")
+        self._step_dir_idle_disable_seconds_override = secs
+        if secs <= 0:
+            self._step_dir_cancel_idle_disable()
+        return self.get_step_dir_idle_disable_seconds()
+
+    def _step_dir_cancel_idle_disable(self) -> None:
+        with self._step_dir_idle_timer_lock:
+            timer = self._step_dir_idle_timer
+            self._step_dir_idle_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _step_dir_enable_before_motion(self, config: DeviceConfigSchema) -> None:
+        self._step_dir_cancel_idle_disable()
+        self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+        self._grbl.ensure_step_dir_ready()
+        timeout_s = float(os.environ.get("STEP_DIR_ACK_TIMEOUT_S", "120"))
+        self._grbl.send_step_dir_command_wait_ack("EN=1", timeout_s=timeout_s)
+
+    def _step_dir_schedule_idle_disable(self, config: DeviceConfigSchema, *, source: str) -> None:
+        idle_s = self._step_dir_idle_disable_seconds()
+        if idle_s <= 0:
+            return
+        self._step_dir_cancel_idle_disable()
+
+        def _disable_worker() -> None:
+            try:
+                self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+                self._grbl.ensure_step_dir_ready()
+                timeout_s = float(os.environ.get("STEP_DIR_ACK_TIMEOUT_S", "120"))
+                self._grbl.send_step_dir_command_wait_ack("EN=0", timeout_s=timeout_s)
+                logging.getLogger(__name__).info(
+                    "step-dir idle timeout reached (%ss) -> EN=0 [%s]",
+                    idle_s,
+                    source,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning("step-dir auto EN=0 failed: %s", exc)
+
+        timer = threading.Timer(idle_s, _disable_worker)
+        timer.daemon = True
+        with self._step_dir_idle_timer_lock:
+            self._step_dir_idle_timer = timer
+        timer.start()
 
     def _env_xda_jog_open_loop(self) -> bool:
         return os.environ.get("XDA_JOG_OPEN_LOOP", "").strip().lower() in ("1", "true", "yes")
@@ -1080,6 +1383,8 @@ class DeviceManager:
 
     def _grbl_unlock_if_alarm(self) -> None:
         """GRBL ignores motion in alarm; ``$X`` clears it when homing is not required."""
+        if not self._grbl.is_grbl_protocol():
+            return
         try:
             self._grbl.send_realtime(ord("?"))
             time.sleep(0.08)
@@ -1090,71 +1395,323 @@ class DeviceManager:
         except Exception:
             pass
 
+    def _send_step_dir_relative_steps(self, delta_steps: int, config: DeviceConfigSchema) -> None:
+        """Send Arduino text commands (CW/CCW with integer degrees)."""
+        if delta_steps == 0:
+            self._step_dir_schedule_idle_disable(config, source="relative_noop")
+            return
+        self._step_dir_enable_before_motion(config)
+        current_steps = self._grbl.status_snapshot().rotation_pos_steps or 0
+        steps_per_deg = max(1e-9, _steps_per_deg(config))
+        signed_deg = rotation_steps_to_deg(delta_steps, config)
+        total_deg = int(round(abs(signed_deg)))
+        if total_deg <= 0:
+            return
+        direction = "CW" if signed_deg > 0 else "CCW"
+        remaining = total_deg
+        ack_timeout = float(os.environ.get("STEP_DIR_ACK_TIMEOUT_S", "120"))
+        while remaining > 0:
+            chunk = min(360, remaining)
+            # Sketch blocks until steps finish, then prints OK — wait so linear never starts mid-rotation.
+            self._grbl.send_step_dir_command_wait_ack(f"{direction}{chunk}", timeout_s=ack_timeout)
+            remaining -= chunk
+        # Keep software estimate coherent even without encoder feedback.
+        estimated_delta_steps = int(round((total_deg if signed_deg > 0 else -total_deg) * steps_per_deg))
+        self._grbl.set_rotation_steps_estimate(current_steps + estimated_delta_steps, moving=False)
+        self._step_dir_schedule_idle_disable(config, source="relative_move")
+
+    def _send_step_dir_payload(self, payload: dict[str, Any], config: DeviceConfigSchema) -> None:
+        cmd_type = str(payload.get("type") or "")
+        axis = payload.get("axis")
+        if cmd_type == "status":
+            return
+        if cmd_type in {"stop", "pattern_cancel", "emergency_stop", "jog_stop"}:
+            # Sketch runs each move as a blocking loop, so there is no asynchronous stop command.
+            self._grbl.set_rotation_steps_estimate(self._grbl.status_snapshot().rotation_pos_steps or 0, moving=False)
+            self._step_dir_cancel_idle_disable()
+            try:
+                self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+                self._grbl.ensure_step_dir_ready()
+                timeout_s = float(os.environ.get("STEP_DIR_ACK_TIMEOUT_S", "120"))
+                self._grbl.send_step_dir_command_wait_ack("EN=0", timeout_s=timeout_s)
+            except Exception:
+                pass
+            return
+        if cmd_type == "home":
+            if axis != "rotation":
+                raise DeviceConfigError("Arduino step-dir backend supports rotation axis only")
+            current_steps = self._grbl.status_snapshot().rotation_pos_steps or 0
+            self._send_step_dir_relative_steps(-current_steps, config)
+            return
+        if cmd_type == "set_home":
+            if axis != "rotation":
+                raise DeviceConfigError("Arduino step-dir backend supports rotation axis only")
+            self._grbl.set_rotation_steps_estimate(0, moving=False)
+            return
+        if cmd_type == "jog":
+            if axis != "rotation":
+                raise DeviceConfigError("Arduino step-dir backend supports rotation axis only")
+            direction = int(payload.get("direction") or 0)
+            if direction == 0:
+                return
+            nudge_steps = rotation_deg_to_steps(1.0, config)
+            self._send_step_dir_relative_steps(nudge_steps if direction > 0 else -nudge_steps, config)
+            return
+        if cmd_type == "move_abs":
+            if axis != "rotation":
+                raise DeviceConfigError("Arduino step-dir backend supports rotation axis only")
+            target_steps = int(payload.get("target_steps") or 0)
+            current_steps = self._grbl.status_snapshot().rotation_pos_steps or 0
+            self._send_step_dir_relative_steps(target_steps - current_steps, config)
+            return
+        if cmd_type == "move_rel":
+            if axis != "rotation":
+                raise DeviceConfigError("Arduino step-dir backend supports rotation axis only")
+            delta_steps = int(payload.get("target_steps") or 0)
+            self._send_step_dir_relative_steps(delta_steps, config)
+            return
+        if cmd_type == "pattern_start":
+            pattern = payload.get("pattern")
+            if not isinstance(pattern, list):
+                return
+            for pt in pattern:
+                if not isinstance(pt, dict):
+                    continue
+                target_steps = int(pt.get("rotation_steps") or 0)
+                current_steps = self._grbl.status_snapshot().rotation_pos_steps or 0
+                self._send_step_dir_relative_steps(target_steps - current_steps, config)
+                dwell_ms = int(pt.get("dwell_ms") or 0)
+                if dwell_ms > 0:
+                    time.sleep(dwell_ms / 1000.0)
+            return
+        raise DeviceConfigError(f"Unsupported command for Arduino step-dir backend: {cmd_type}")
+
+    def _move_linear_abs_split(self, lin_axis: str, target_units: int, config: DeviceConfigSchema) -> None:
+        self._xda.move_abs_units(lin_axis, target_units)
+        self._xda.wait_in_position(
+            lin_axis,
+            target_units,
+            config.linear.in_position_tolerance_units,
+            config.linear.move_timeout_ms,
+        )
+
+    def _move_rotation_abs_split(self, target_steps: int, config: DeviceConfigSchema) -> None:
+        rotation_backend = self._rotation_backend(config)
+        use_grbl = rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
+        payload = {"type": "move_abs", "axis": "rotation", "target_steps": int(target_steps)}
+        if use_grbl:
+            self._send_grbl_payload(payload, config)
+            return
+        self._send_step_dir_payload(payload, config)
+
+    def _wait_rotation_settled_split(self, config: DeviceConfigSchema) -> None:
+        """Ensure rotation motion finished before starting linear segment (split USB).
+
+        Step-dir sketch is synchronous per CW/CCW line; the backend waits for OK after each chunk, so this poll is a
+        fallback if ``rotation_moving`` is ever wired from STAT telemetry.
+        """
+        rotation_backend = self._rotation_backend(config)
+        use_grbl = rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
+        if use_grbl:
+            self._wait_grbl_idle(timeout_s=180.0)
+            return
+        timeout_s = float(os.environ.get("PATTERN_ROTATION_SETTLE_TIMEOUT_S", "120"))
+        deadline = time.monotonic() + max(1.0, timeout_s)
+        while time.monotonic() < deadline:
+            if not self._grbl.status_snapshot().rotation_moving:
+                return
+            time.sleep(0.04)
+        raise DeviceConnectionError("Timed out waiting for rotation to finish (step-dir)")
+
+    def _pattern_require_rotation_zero(self) -> bool:
+        return os.environ.get("PATTERN_REQUIRE_ROTATION_ZERO", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+
+    def _assert_split_pattern_starts_at_rotation_zero(self, config: DeviceConfigSchema) -> None:
+        if not self._pattern_require_rotation_zero():
+            return
+        tol_deg = float(os.environ.get("PATTERN_ROTATION_ZERO_TOL_DEG", "0.75"))
+        self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+        rotation_backend = self._rotation_backend(config)
+        use_grbl = rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
+        if use_grbl and self._grbl.is_grbl_protocol():
+            self._grbl.send_realtime(ord("?"))
+            time.sleep(0.06)
+        snap = self._grbl.status_snapshot()
+        if snap.rotation_pos_steps is None:
+            raise DeviceConfigError(
+                "Cannot read rotation position; connect rotation USB and retry before pattern_start.",
+                http_detail=pattern_rotation_zero_required_detail(
+                    config,
+                    current_deg=None,
+                    tol_deg=tol_deg,
+                    command_type="pattern_start",
+                ),
+            )
+        deg = rotation_steps_to_deg(int(snap.rotation_pos_steps), config)
+        if abs(deg) > tol_deg:
+            raise DeviceConfigError(
+                f"pattern_start requires rotation at software 0° (±{tol_deg:g}°); current ≈ {deg:.2f}°. "
+                "Use Set HOME at mechanical zero, then run the program.",
+                http_detail=pattern_rotation_zero_required_detail(
+                    config,
+                    current_deg=deg,
+                    tol_deg=tol_deg,
+                    command_type="pattern_start",
+                ),
+            )
+
+    def _pattern_bookend_home_enabled(self) -> bool:
+        return os.environ.get("PATTERN_BOOKEND_HOME", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+
+    def _go_home_both_split(self, lin_axis: str, config: DeviceConfigSchema) -> None:
+        """Linear HOME then rotation home (same order as split `home` axis=both)."""
+        rotation_backend = self._rotation_backend(config)
+        use_grbl = rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
+        try:
+            self._xda.send_home(lin_axis)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("pattern bookend: linear HOME failed: %s", exc)
+        settle = float(os.environ.get("PATTERN_LINEAR_HOME_SETTLE_S", "2.0"))
+        if settle > 0:
+            time.sleep(settle)
+        if use_grbl:
+            self._grbl.send_line("$H")
+            self._wait_grbl_idle(timeout_s=600.0)
+        else:
+            self._send_step_dir_payload({"type": "home", "axis": "rotation"}, config)
+            self._wait_rotation_settled_split(config)
+
+    def _pattern_apply_one_split_point(
+        self, lin_axis: str, config: DeviceConfigSchema, pt: dict[str, Any]
+    ) -> None:
+        lu = int(pt.get("linear_units") or 0)
+        steps = int(pt.get("rotation_steps") or 0)
+        self._move_rotation_abs_split(steps, config)
+        self._wait_rotation_settled_split(config)
+        self._move_linear_abs_split(lin_axis, lu, config)
+        dwell_ms = int(pt.get("dwell_ms") or 0)
+        if dwell_ms > 0:
+            time.sleep(dwell_ms / 1000.0)
+
     def _pattern_start_split_loop(
         self, lin_axis: str, config: DeviceConfigSchema, pattern: list[Any]
     ) -> None:
-        self._grbl_unlock_if_alarm()
-        self._grbl.send_line("G90")
-        for pt in pattern:
-            if not isinstance(pt, dict):
-                continue
-            lu = int(pt.get("linear_units") or 0)
-            self._xda.move_abs_units(lin_axis, lu)
-            self._xda.wait_in_position(
-                lin_axis,
-                lu,
-                config.linear.in_position_tolerance_units,
-                config.linear.move_timeout_ms,
+        points = [p for p in pattern if isinstance(p, dict)]
+        if not points:
+            return
+
+        bookend = self._pattern_bookend_home_enabled()
+        if bookend:
+            log = logging.getLogger(__name__)
+            log.info("pattern_start (split): bookend HOME (linear + rotation)")
+            self._go_home_both_split(lin_axis, config)
+            first = points[0]
+            log.info("pattern_start (split): approach first waypoint")
+            self._pattern_apply_one_split_point(lin_axis, config, first)
+            to_run = points[1:]
+        else:
+            self._assert_split_pattern_starts_at_rotation_zero(config)
+            to_run = points
+
+        for pt in to_run:
+            self._pattern_apply_one_split_point(lin_axis, config, pt)
+
+        if bookend:
+            logging.getLogger(__name__).info("pattern_start (split): return HOME (linear + rotation)")
+            self._go_home_both_split(lin_axis, config)
+
+    def _try_linear_stop_non_blocking(self, config: DeviceConfigSchema, *, source: str) -> None:
+        """Best-effort linear stop; never block rotation command completion."""
+        try:
+            port = (config.serial.linear_port or "").strip()
+            if not port:
+                return
+            lin_axis = self._ensure_xda(config, for_command=source)
+            self._xda.send_stop(lin_axis)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Non-blocking linear stop skipped (%s): %s", source, exc
             )
-            steps = int(pt.get("rotation_steps") or 0)
-            deg = rotation_steps_to_deg(steps, config)
-            self._grbl.send_line(f"G0 X{deg:.4f}")
-            self._wait_grbl_idle()
-            dwell_ms = int(pt.get("dwell_ms") or 0)
-            if dwell_ms > 0:
-                time.sleep(dwell_ms / 1000.0)
 
     def send_command(self, command: DeviceCommandSchema, config: DeviceConfigSchema) -> dict[str, Any]:
-        if self._is_split_usb(config):
-            return self._send_split_command(command, config)
-        if not config.serial.pico_port:
-            raise DeviceConfigError(
-                "serial.pico_port is not configured",
-                http_detail=missing_pico_port_detail(
-                    config,
-                    command_type=str(command.type),
-                    in_split_path=False,
-                ),
-            )
-        backend = self._rotation_backend(config)
-        if backend == "arduino_grbl":
-            self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
-            self._grbl.send_realtime(ord("?"))
+        try:
+            if self._is_split_usb(config):
+                return self._send_split_command(command, config)
+            if not config.serial.pico_port:
+                raise DeviceConfigError(
+                    "serial.pico_port is not configured",
+                    http_detail=missing_pico_port_detail(
+                        config,
+                        command_type=str(command.type),
+                        in_split_path=False,
+                    ),
+                )
+            backend = self._rotation_backend(config)
+            if backend == "arduino_grbl":
+                self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+                payload = self._build_payload(command, config)
+                if self._should_use_step_dir_protocol(backend):
+                    self._grbl.ensure_step_dir_ready()
+                    self._send_step_dir_payload(payload, config)
+                else:
+                    # Poll only when device is confirmed GRBL. Sending '?' to text firmware pollutes input buffer.
+                    if self._grbl.is_grbl_protocol():
+                        self._grbl.send_realtime(ord("?"))
+                    self._send_grbl_payload(payload, config)
+                return payload
+            if backend == "arduino_step_dir":
+                self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
+                self._grbl.ensure_step_dir_ready()
+                payload = self._build_payload(command, config)
+                self._send_step_dir_payload(payload, config)
+                return payload
+            self._pico.connect(config.serial.pico_port, config.serial.pico_baud)
+            self._ensure_config_sent(config)
             payload = self._build_payload(command, config)
-            self._send_grbl_payload(payload, config)
+            self._pico.send_json(payload)
             return payload
-        self._pico.connect(config.serial.pico_port, config.serial.pico_baud)
-        self._ensure_config_sent(config)
-        payload = self._build_payload(command, config)
-        self._pico.send_json(payload)
-        return payload
+        except DeviceConnectionError as exc:
+            configured_backend = self._rotation_backend(config)
+            active_rotation_path = configured_backend
+            if configured_backend == "arduino_grbl" and self._should_use_step_dir_protocol(configured_backend):
+                active_rotation_path = "arduino_step_dir_text_fallback"
+            usb_mode = "split_usb" if self._is_split_usb(config) else "single_usb"
+            axis = command.axis if command.axis is not None else "none"
+            raise DeviceConnectionError(
+                f"command={command.type} axis={axis} mode={usb_mode} rotation_path={active_rotation_path}: {exc}",
+                http_detail=exc.http_detail,
+            ) from exc
 
     def _send_split_command(self, command: DeviceCommandSchema, config: DeviceConfigSchema) -> dict[str, Any]:
         payload = self._build_payload(command, config)
         ct = command.type
         axis = command.axis
         lin_axis: str | None = None
+        rotation_backend = self._rotation_backend(config)
+        
+        def use_grbl_now() -> bool:
+            return rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
 
-        needs_grbl = False
+        needs_rotation = False
         if ct in {"status", "pattern_cancel", "emergency_stop", "pattern_start"}:
-            needs_grbl = True
-        elif ct in {"move_abs", "move_rel", "jog", "home"}:
-            needs_grbl = axis == "rotation" or axis == "both"
+            needs_rotation = True
+        elif ct in {"move_abs", "move_rel", "jog", "home", "set_home"}:
+            needs_rotation = axis == "rotation" or axis == "both"
         elif ct in {"jog_stop", "stop"}:
-            needs_grbl = axis in (None, "rotation", "both")
+            needs_rotation = axis in (None, "rotation", "both")
 
-        def ensure_grbl() -> None:
-            if not needs_grbl:
+        def ensure_rotation() -> None:
+            if not needs_rotation:
                 return
             if not config.serial.pico_port:
                 raise DeviceConfigError(
@@ -1166,8 +1723,12 @@ class DeviceManager:
                     ),
                 )
             self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
-            self._grbl.send_realtime(ord("?"))
-            self._grbl_unlock_if_alarm()
+            if use_grbl_now():
+                if self._grbl.is_grbl_protocol():
+                    self._grbl.send_realtime(ord("?"))
+                self._grbl_unlock_if_alarm()
+            else:
+                self._grbl.ensure_step_dir_ready()
 
         def ensure_xda() -> str:
             nonlocal lin_axis
@@ -1176,27 +1737,38 @@ class DeviceManager:
             return lin_axis
 
         if ct == "status":
-            ensure_grbl()
-            self._grbl.send_realtime(ord("?"))
+            ensure_rotation()
+            if use_grbl_now():
+                if self._grbl.is_grbl_protocol():
+                    self._grbl.send_realtime(ord("?"))
             return payload
 
         if ct in {"pattern_cancel", "emergency_stop"}:
-            ensure_grbl()
-            self._xda.send_stop(ensure_xda())
-            self._grbl.send_realtime(0x85)
+            ensure_rotation()
+            self._try_linear_stop_non_blocking(config, source=str(ct))
+            if use_grbl_now():
+                self._grbl.send_realtime(0x85)
+            else:
+                self._send_step_dir_payload({"type": "stop", "axis": "rotation"}, config)
             return payload
 
         if ct == "stop":
             ax = command.axis
             if ax in (None, "both"):
-                ensure_grbl()
-                self._xda.send_stop(ensure_xda())
-                self._grbl.send_realtime(0x85)
+                ensure_rotation()
+                self._try_linear_stop_non_blocking(config, source="stop")
+                if use_grbl_now():
+                    self._grbl.send_realtime(0x85)
+                else:
+                    self._send_step_dir_payload({"type": "stop", "axis": "rotation"}, config)
             elif ax == "linear":
                 self._xda.send_stop(ensure_xda())
             elif ax == "rotation":
-                ensure_grbl()
-                self._grbl.send_realtime(0x85)
+                ensure_rotation()
+                if use_grbl_now():
+                    self._grbl.send_realtime(0x85)
+                else:
+                    self._send_step_dir_payload({"type": "stop", "axis": "rotation"}, config)
             return payload
 
         if ct == "home":
@@ -1205,33 +1777,57 @@ class DeviceManager:
                 self._xda.send_home(ensure_xda())
                 return payload
             if ax == "rotation":
-                ensure_grbl()
-                self._grbl.send_line("$H")
-                self._wait_grbl_idle(timeout_s=600.0)
+                ensure_rotation()
+                if use_grbl_now():
+                    self._grbl.send_line("$H")
+                    self._wait_grbl_idle(timeout_s=600.0)
+                else:
+                    self._send_step_dir_payload(payload, config)
                 return payload
             if ax == "both":
-                ensure_grbl()
-                self._xda.send_home(ensure_xda())
-                self._grbl.send_line("$H")
-                self._wait_grbl_idle(timeout_s=600.0)
+                ensure_rotation()
+                try:
+                    self._xda.send_home(ensure_xda())
+                except Exception as exc:
+                    logging.getLogger(__name__).warning("Non-blocking linear home skipped: %s", exc)
+                if use_grbl_now():
+                    self._grbl.send_line("$H")
+                    self._wait_grbl_idle(timeout_s=600.0)
+                else:
+                    self._send_step_dir_payload({"type": "home", "axis": "rotation"}, config)
                 return payload
             raise DeviceConfigError("home requires axis")
+
+        if ct == "set_home":
+            ax = command.axis
+            if ax == "rotation":
+                ensure_rotation()
+                if use_grbl_now():
+                    self._grbl.send_line("G92 X0")
+                else:
+                    self._send_step_dir_payload(payload, config)
+                return payload
+            if ax == "both":
+                ensure_rotation()
+                if use_grbl_now():
+                    self._grbl.send_line("G92 X0")
+                else:
+                    self._send_step_dir_payload({"type": "set_home", "axis": "rotation"}, config)
+                # For split mode, linear set-home is not supported; keep it rotation-only.
+                return payload
+            if ax == "linear":
+                raise DeviceConfigError("set_home for linear axis is not supported in split USB mode")
+            raise DeviceConfigError("set_home requires axis")
 
         if ct == "move_abs":
             if command.axis == "linear":
                 tu = int(payload["target_units"])
                 linear_axis = ensure_xda()
-                self._xda.move_abs_units(linear_axis, tu)
-                self._xda.wait_in_position(
-                    linear_axis,
-                    tu,
-                    config.linear.in_position_tolerance_units,
-                    config.linear.move_timeout_ms,
-                )
+                self._move_linear_abs_split(linear_axis, tu, config)
                 return payload
             if command.axis == "rotation":
-                ensure_grbl()
-                self._send_grbl_payload(payload, config)
+                ensure_rotation()
+                self._move_rotation_abs_split(int(payload["target_steps"]), config)
                 return payload
             raise DeviceConfigError("move_abs requires axis linear or rotation")
 
@@ -1243,15 +1839,21 @@ class DeviceManager:
                 time.sleep(0.15)
                 return payload
             if command.axis == "rotation":
-                ensure_grbl()
-                self._send_grbl_payload(payload, config)
+                ensure_rotation()
+                if use_grbl_now():
+                    self._send_grbl_payload(payload, config)
+                else:
+                    self._send_step_dir_payload(payload, config)
                 return payload
             raise DeviceConfigError("move_rel requires axis linear or rotation")
 
         if ct == "jog":
             if command.axis == "rotation":
-                ensure_grbl()
-                self._send_grbl_payload(payload, config)
+                ensure_rotation()
+                if use_grbl_now():
+                    self._send_grbl_payload(payload, config)
+                else:
+                    self._send_step_dir_payload(payload, config)
                 return payload
             if command.axis == "linear":
                 direction = int(payload.get("direction") or 0)
@@ -1281,24 +1883,33 @@ class DeviceManager:
             ax = command.axis
             open_loop = self.is_xda_jog_open_loop()
             if ax in (None, "both"):
-                ensure_grbl()
-                linear_axis = ensure_xda()
-                if open_loop:
-                    self._xda.send_move_open_loop(linear_axis, 0)
-                self._xda.send_stop(linear_axis)
-                self._grbl.send_realtime(0x85)
+                ensure_rotation()
+                try:
+                    linear_axis = ensure_xda()
+                    if open_loop:
+                        self._xda.send_move_open_loop(linear_axis, 0)
+                    self._xda.send_stop(linear_axis)
+                except Exception as exc:
+                    logging.getLogger(__name__).warning("Non-blocking linear jog_stop skipped: %s", exc)
+                if use_grbl_now():
+                    self._grbl.send_realtime(0x85)
+                else:
+                    self._send_step_dir_payload({"type": "stop", "axis": "rotation"}, config)
             elif ax == "linear":
                 linear_axis = ensure_xda()
                 if open_loop:
                     self._xda.send_move_open_loop(linear_axis, 0)
                 self._xda.send_stop(linear_axis)
             else:
-                ensure_grbl()
-                self._grbl.send_realtime(0x85)
+                ensure_rotation()
+                if use_grbl_now():
+                    self._grbl.send_realtime(0x85)
+                else:
+                    self._send_step_dir_payload({"type": "stop", "axis": "rotation"}, config)
             return payload
 
         if ct == "pattern_start":
-            ensure_grbl()
+            ensure_rotation()
             linear_axis = ensure_xda()
             pattern = payload.get("pattern")
             if not isinstance(pattern, list):
@@ -1330,13 +1941,21 @@ class DeviceManager:
             )
         lin_axis = self._ensure_xda(config, for_command="pattern_start")
         self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
-        self._grbl.send_realtime(ord("?"))
+        rotation_backend = self._rotation_backend(config)
+        use_grbl = rotation_backend == "arduino_grbl" and not self._should_use_step_dir_protocol(rotation_backend)
+        if use_grbl:
+            if self._grbl.is_grbl_protocol():
+                self._grbl.send_realtime(ord("?"))
+            self._grbl_unlock_if_alarm()
+        else:
+            self._grbl.ensure_step_dir_ready()
         payload = self._build_payload(command, config)
         pattern = payload.get("pattern")
         if not isinstance(pattern, list):
             return payload
         if len(pattern) == 0:
-            self._grbl.send_line("G90")
+            if use_grbl:
+                self._grbl.send_line("G90")
             return payload
 
         async def _run() -> None:
@@ -1360,16 +1979,18 @@ class DeviceManager:
         out = dict(payload)
         out["accepted"] = True
         out["running_async"] = True
+        out["bookend_home"] = self._pattern_bookend_home_enabled()
         return out
 
     def get_status(self, config: DeviceConfigSchema) -> DeviceStatusSchema:
         backend = self._rotation_backend(config)
         if self._is_split_usb(config):
             return self._get_status_split(config)
-        if config.serial.pico_port and backend == "arduino_grbl":
+        if config.serial.pico_port and backend in {"arduino_grbl", "arduino_step_dir"}:
             try:
                 self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
-                self._grbl.send_realtime(ord("?"))
+                if backend == "arduino_grbl" and self._grbl.is_grbl_protocol():
+                    self._grbl.send_realtime(ord("?"))
             except DeviceConnectionError:
                 pass
             snapshot = self._grbl.status_snapshot()
@@ -1419,42 +2040,66 @@ class DeviceManager:
     def _get_status_split(self, config: DeviceConfigSchema) -> DeviceStatusSchema:
         last_err: str | None = None
         linear_mm: float | None = None
-        xda_ok = False
 
         if config.serial.pico_port:
             try:
                 self._grbl.connect(config.serial.pico_port, config.serial.pico_baud)
-                self._grbl.send_realtime(ord("?"))
+                if self._rotation_backend(config) == "arduino_grbl" and self._grbl.is_grbl_protocol():
+                    self._grbl.send_realtime(ord("?"))
             except DeviceConnectionError as exc:
                 last_err = str(exc)
         grbl_snap = self._grbl.status_snapshot()
 
         port = (config.serial.linear_port or "").strip()
         if port:
-            try:
-                # Same path as motion commands: INDX + SSPD on first USB session (see XD-OEM manual).
-                lin_axis = self._ensure_xda(config, for_command="status")
-                units = self._xda.query_epos(lin_axis)
-                if units is not None and units >= 0:
-                    linear_mm = linear_units_to_mm(units, config)
-                    xda_ok = True
-                elif units == -1:
-                    last_err = f"{last_err or ''} XDA encoder not valid (EPOS=-1): run index (INDX) and check encoder wiring/status.".strip()
-            except (DeviceConfigError, DeviceConnectionError, OSError, ValueError) as exc:
-                last_err = f"{last_err or ''} {exc}".strip()
+            now = time.monotonic()
+            should_probe = True
+            with self._split_linear_probe_lock:
+                if now < self._split_linear_next_probe_ts:
+                    should_probe = False
+                    linear_mm = self._split_linear_last_mm
+                    if self._split_linear_last_error:
+                        last_err = self._split_linear_last_error
+            if should_probe:
+                try:
+                    # Same path as motion commands: INDX + SSPD on first USB session (see XD-OEM manual).
+                    lin_axis = self._ensure_xda(config, for_command="status")
+                    units = self._xda.query_epos(lin_axis)
+                    if units is not None and units >= 0:
+                        linear_mm = linear_units_to_mm(units, config)
+                        with self._split_linear_probe_lock:
+                            self._split_linear_last_mm = linear_mm
+                            self._split_linear_last_error = None
+                            self._split_linear_next_probe_ts = now + 0.5
+                    elif units == -1:
+                        last_err = "XDA encoder not valid (EPOS=-1): run index (INDX) and check encoder wiring/status."
+                        with self._split_linear_probe_lock:
+                            self._split_linear_last_error = last_err
+                            self._split_linear_next_probe_ts = now + 3.0
+                    else:
+                        with self._split_linear_probe_lock:
+                            self._split_linear_next_probe_ts = now + 1.0
+                except (DeviceConfigError, DeviceConnectionError, OSError, ValueError) as exc:
+                    last_err = str(exc)
+                    with self._split_linear_probe_lock:
+                        self._split_linear_last_error = last_err
+                        self._split_linear_next_probe_ts = now + 3.0
 
         rotation_deg = (
             rotation_steps_to_deg(grbl_snap.rotation_pos_steps, config)
             if grbl_snap.rotation_pos_steps is not None
             else None
         )
-        merged_err = last_err or grbl_snap.last_error
+        merged_err = grbl_snap.last_error
+        if last_err:
+            merged_err = f"{merged_err}; linear: {last_err}" if merged_err else f"linear: {last_err}"
         with self._pattern_bg_lock:
             bg_err = self._pattern_bg_error
             bg_run = self._pattern_bg_running
         if bg_err:
             merged_err = f"{merged_err}; {bg_err}" if merged_err else bg_err
-        connected = bool(grbl_snap.connected and xda_ok and config.serial.pico_port)
+        # Rotation link is primary for Arduino split setups; linear may be unplugged during rotary-only work.
+        connected = bool(grbl_snap.connected and config.serial.pico_port)
         return DeviceStatusSchema(
             connected=connected,
             last_error=merged_err if merged_err else None,
@@ -1512,6 +2157,8 @@ class DeviceManager:
                 return payload
         if cmd_type == "home":
             return {"type": "home", "axis": axis}
+        if cmd_type == "set_home":
+            return {"type": "set_home", "axis": axis}
         if cmd_type == "stop":
             return {"type": "stop", "axis": axis}
         if cmd_type == "emergency_stop":
@@ -1556,6 +2203,11 @@ class DeviceManager:
                 raise DeviceConfigError("GRBL backend supports rotation axis only")
             self._grbl.send_line("$H")
             self._wait_grbl_idle(timeout_s=600.0)
+            return
+        if cmd_type == "set_home":
+            if axis != "rotation":
+                raise DeviceConfigError("GRBL backend supports rotation axis only")
+            self._grbl.send_line("G92 X0")
             return
         if cmd_type == "jog":
             if axis != "rotation":

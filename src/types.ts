@@ -116,8 +116,8 @@ export interface HealthStatusDto {
 export interface DeviceSerialConfigDto {
   pico_port: string | null;
   pico_baud: number;
-  rotation_backend?: "pico" | "arduino_grbl";
-  /** XDA/XLA-1 USB COM when rotation uses Arduino/GRBL (split setup). */
+  rotation_backend?: "pico" | "arduino_grbl" | "arduino_step_dir";
+  /** XDA/XLA-1 USB COM when rotation uses Arduino backend (GRBL or CW/CCW text, split setup). */
   linear_port?: string | null;
   linear_baud?: number;
 }
@@ -172,6 +172,7 @@ export interface DeviceWaypointDto {
 export interface DeviceCommandDto {
   type:
     | "home"
+    | "set_home"
     | "move_abs"
     | "move_rel"
     | "stop"
@@ -225,6 +226,10 @@ export interface DeviceSerialPortDto {
 }
 
 export interface DeviceXdaDiagDto {
+  lines: string[];
+}
+
+export interface DeviceRotationDiagDto {
   lines: string[];
 }
 

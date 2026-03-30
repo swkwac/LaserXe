@@ -108,4 +108,9 @@ def health():
 
     ``laserxe_device_config_merge`` is True only for this repo's main.py — use to verify port 8000 is this app.
     """
-    return {"status": "ok", "laserxe_device_config_merge": True}
+    return {
+        "status": "ok",
+        "laserxe_device_config_merge": True,
+        "supported_rotation_backends": ["pico", "arduino_grbl", "arduino_step_dir"],
+        "default_rotation_backend": "arduino_step_dir",
+    }

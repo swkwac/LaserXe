@@ -21,7 +21,7 @@ DEFAULT_CONFIG = DeviceConfigSchema(
     serial=DeviceSerialConfigSchema(
         pico_port=None,
         pico_baud=115200,
-        rotation_backend="pico",
+        rotation_backend="arduino_step_dir",
         linear_port=None,
         linear_baud=115200,
     ),

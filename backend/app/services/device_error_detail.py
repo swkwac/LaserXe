@@ -15,6 +15,7 @@ __all__ = [
     "is_split_usb",
     "missing_linear_port_detail",
     "missing_pico_port_detail",
+    "pattern_rotation_zero_required_detail",
     "legacy_config_error_detail",
     "connection_error_http_detail",
 ]
@@ -26,13 +27,13 @@ def config_path_str() -> str:
 
 def effective_rotation_backend(config: DeviceConfigSchema) -> str:
     override = os.getenv("DEVICE_ROTATION_BACKEND", "").strip().lower()
-    if override in {"pico", "arduino_grbl"}:
+    if override in {"pico", "arduino_grbl", "arduino_step_dir"}:
         return override
     return config.serial.rotation_backend
 
 
 def is_split_usb(config: DeviceConfigSchema) -> bool:
-    return effective_rotation_backend(config) == "arduino_grbl" and bool(
+    return effective_rotation_backend(config) in {"arduino_grbl", "arduino_step_dir"} and bool(
         (config.serial.linear_port or "").strip()
     )
 
@@ -43,6 +44,16 @@ def motion_mode_description(config: DeviceConfigSchema) -> str:
         return (
             "pico — Single USB device (Raspberry Pi Pico). `serial.pico_port` is that COM/tty. "
             "Pico firmware talks JSON to the PC and drives linear (often XDA over UART) + rotation."
+        )
+    if rb == "arduino_step_dir":
+        if (config.serial.linear_port or "").strip():
+            return (
+                "split_usb_text_rotation — PC opens two serial ports: `serial.pico_port` → Arduino text protocol "
+                "(rotation: CW/CCW), `serial.linear_port` → XD-OEM / XLA-1 (linear). Sweep programs need both."
+            )
+        return (
+            "arduino_text_rotation_only — Only `serial.pico_port` is used for Arduino text protocol "
+            "(rotation commands like CW90/CCW45); `linear_port` is empty, so linear USB axis is not used."
         )
     if (config.serial.linear_port or "").strip():
         return (
@@ -105,7 +116,7 @@ def missing_pico_port_detail(
         "for_developers": (
             "Config is loaded per request via `load_device_config()` from `app.services.device_config.CONFIG_PATH`. "
             "`DEVICE_ROTATION_BACKEND` env overrides `rotation_backend` only; it does not set COM ports. "
-            "Split mode is `arduino_grbl` + non-empty `linear_port`."
+            "Split mode is (`arduino_grbl` or `arduino_step_dir`) + non-empty `linear_port`."
         ),
     }
 
@@ -116,7 +127,7 @@ def missing_linear_port_detail(config: DeviceConfigSchema, *, command_type: str 
         "code": "MISSING_LINEAR_PORT",
         "title": "serial.linear_port is not set (XDA / XLA-1 USB)",
         "summary": (
-            "Split-USB mode is active (Arduino GRBL + XDA linear), but `serial.linear_port` is empty. "
+            "Split-USB mode is active (Arduino rotation + XDA linear), but `serial.linear_port` is empty. "
             "The backend cannot open the XD-OEM serial port for linear motion. "
             "Sweep / pattern_start requires both rotation (pico_port) and linear (linear_port)."
         ),
@@ -125,9 +136,39 @@ def missing_linear_port_detail(config: DeviceConfigSchema, *, command_type: str 
         "config_snapshot": config_snapshot(config),
         "remediation": [
             "Set “Linear USB (XDA)” in Device Control and Save, or set `serial.linear_port` in `device_config.json`.",
-            "Ensure `rotation_backend` is `arduino_grbl` and both COM ports match Windows Device Manager / `GET /api/device/serial-ports`.",
+            "Ensure `rotation_backend` is `arduino_grbl` or `arduino_step_dir` and both COM ports match Windows Device Manager / `GET /api/device/serial-ports`.",
         ],
         "for_developers": "_ensure_xda() requires a non-empty linear_port when _is_split_usb() is true.",
+    }
+
+
+def pattern_rotation_zero_required_detail(
+    config: DeviceConfigSchema,
+    *,
+    current_deg: float | None,
+    tol_deg: float,
+    command_type: str | None,
+) -> dict[str, Any]:
+    cur = "unknown" if current_deg is None else f"{current_deg:.3f}"
+    return {
+        "error": "device_configuration",
+        "code": "PATTERN_ROTATION_NOT_AT_ZERO",
+        "title": "Program start requires rotation at software 0° (after Set HOME)",
+        "summary": (
+            f"Split-USB pattern runs use software limits with home = 0°. "
+            f"The reported rotation position must be within ±{tol_deg:g}° before starting. "
+            f"Current ≈ {cur}°."
+        ),
+        "command_attempted": command_type,
+        "tolerance_deg": tol_deg,
+        "current_rotation_deg": current_deg,
+        "config_file": config_path_str(),
+        "config_snapshot": config_snapshot(config),
+        "remediation": [
+            "Default split-USB sweeps use bookend homing (`PATTERN_BOOKEND_HOME=1`): no need to be at 0° before Run.",
+            "If you disabled bookends (`PATTERN_BOOKEND_HOME=0`), physically align to reference, **Set HOME (here = 0°)**, then confirm status ≈ 0°.",
+            "Optional: `PATTERN_REQUIRE_ROTATION_ZERO=0` disables this check (testing only).",
+        ],
     }
 
 

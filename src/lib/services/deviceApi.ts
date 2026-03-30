@@ -12,6 +12,7 @@ import type {
   DevicePositionPresetDto,
   DeviceSerialPortDto,
   DeviceStatusDto,
+  DeviceRotationDiagDto,
   DeviceXdaDiagDto,
   DeviceXdaToolsStateDto,
 } from "@/types";
@@ -188,6 +189,64 @@ export async function getXdaDiag(): Promise<DeviceXdaDiagDto> {
     path: "/api/device/xda-diag",
     method: "GET",
   });
+}
+
+export async function getRotationDiag(): Promise<DeviceRotationDiagDto> {
+  return fetchJsonOrThrow<DeviceRotationDiagDto>("/api/device/rotation-diag", undefined, {
+    operation: "Read recent rotation serial TX/RX lines",
+    path: "/api/device/rotation-diag",
+    method: "GET",
+  });
+}
+
+export async function rotationSendRaw(command: string): Promise<{ ok: boolean; sent: string }> {
+  return fetchJsonOrThrow(
+    "/api/device/rotation-tools/raw",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command }),
+    },
+    {
+      operation: "Send raw rotation step-dir command",
+      path: "/api/device/rotation-tools/raw",
+      method: "POST",
+    }
+  );
+}
+
+export async function getRotationIdleTimeout(): Promise<{
+  seconds: number;
+  source: string;
+  env_seconds: number;
+  enabled: boolean;
+}> {
+  return fetchJsonOrThrow("/api/device/rotation-tools/idle-timeout", undefined, {
+    operation: "Read step-dir idle auto-disable timeout",
+    path: "/api/device/rotation-tools/idle-timeout",
+    method: "GET",
+  });
+}
+
+export async function setRotationIdleTimeout(seconds: number): Promise<{
+  seconds: number;
+  source: string;
+  env_seconds: number;
+  enabled: boolean;
+}> {
+  return fetchJsonOrThrow(
+    "/api/device/rotation-tools/idle-timeout",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seconds }),
+    },
+    {
+      operation: "Set step-dir idle auto-disable timeout",
+      path: "/api/device/rotation-tools/idle-timeout",
+      method: "POST",
+    }
+  );
 }
 
 export async function getXdaToolsState(): Promise<DeviceXdaToolsStateDto> {
